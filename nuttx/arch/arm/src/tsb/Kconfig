@@ -63,3 +63,7 @@ config TSB_PINSHARE_ETM
     default n
 	---help---
 		Enable ETM PINSHARE at Boot Instead of I2S
+
+config ARCH_CHIP_TSB_DEVICE_TABLE_I2S
+    bool
+    default n
