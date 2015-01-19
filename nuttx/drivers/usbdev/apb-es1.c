@@ -62,6 +62,7 @@
 #include <nuttx/usb/apb_es1.h>
 #include <nuttx/logbuffer.h>
 #include <nuttx/gpio.h>
+#include <nuttx/greybus/greybus.h>
 
 #include <arch/tsb/unipro.h>
 
@@ -99,14 +100,30 @@
 
 /* These settings are not modifiable via the NuttX configuration */
 
-#define APBRIDGE_VERSIONNO           (0x0001)   /* Device version number */
-#define APBRIDGE_CONFIGIDNONE        (0)        /* Config ID means to return to address mode */
-#define APBRIDGE_CONFIGID            (1)        /* The only supported configuration ID */
-#define APBRIDGE_NCONFIGS            (1)        /* Number of configurations supported */
+#if defined(CONFIG_TSB_CHIP_REV_ES2)
+#define APBRIDGE_NBULKS              (7)
+#else
+#define APBRIDGE_NBULKS              (1)
+#endif
+
+/* Device version number */
+#define APBRIDGE_VERSIONNO           (0x0001)
+/* Config ID means to return to address mode */
+#define APBRIDGE_CONFIGIDNONE        (0)
+/* The only supported configuration ID */
+#define APBRIDGE_CONFIGID            (1)
+/* Number of configurations supported */
+#define APBRIDGE_NCONFIGS            (1)
 #define APBRIDGE_INTERFACEID         (0)
 #define APBRIDGE_ALTINTERFACEID      (0)
-#define APBRIDGE_NINTERFACES         (1)        /* Number of interfaces in the configuration */
-#define APBRIDGE_NENDPOINTS          (3)        /* Number of endpoints in the interface  */
+/* Number of interfaces in the configuration */
+#define APBRIDGE_NINTERFACES         (1)
+/* Number of endpoints in the interface  */
+#define APBRIDGE_NINTS               (1)
+#define APBRIDGE_NENDPOINTS          (APBRIDGE_NINTS + (APBRIDGE_NBULKS << 1))
+
+#define BULKEP_TO_N(ep) \
+  ((USB_EPNO(ep->eplog) - CONFIG_APBRIDGE_EPBULKOUT) >> 1)
 
 #define APBRIDGE_NREQS               (1)
 #define APBRIDGE_REQ_SIZE_IN         (1024)
@@ -193,6 +210,9 @@ struct apbridge_dev_s {
     struct list_head intreq;
     struct list_head rdreq;
     struct list_head wrreq[APBRIDGE_REQ_ORDER_MAX];
+
+    int cport_to_epin_n[CPORT_MAX];
+    int epout_to_cport_n[APBRIDGE_NBULKS];
 
     struct apbridge_usb_driver *driver;
 };
@@ -354,7 +374,7 @@ static const struct usb_epdesc_s g_epbulkindesc = {
     0                           /* interval */
 };
 
-static const struct usb_epdesc_s *g_usbdesc[] = {
+static const struct usb_epdesc_s *g_usbdesc[APBRIDGE_MAX_ENDPOINTS] = {
     NULL,               /* No descriptor for ep0 */
     &g_epintindesc,
     &g_epbulkoutdesc,
@@ -406,10 +426,16 @@ static struct list_head *get_req_list(struct apbridge_dev_s *priv,
         return &priv->ctrlreq;
     case CONFIG_APBRIDGE_EPINTIN:
         return &priv->intreq;
-    case CONFIG_APBRIDGE_EPBULKIN:
-        return &priv->wrreq[size_to_order(len)];
-    case CONFIG_APBRIDGE_EPBULKOUT:
-        return &priv->rdreq;
+    default:
+        /* 
+         * EP with even address (except ep0) are bulk out endpoint.
+         * EP with odd address (except ep1) are bulk in endpoint.
+         */
+        if (epno % 2 == 0) {
+            return &priv->rdreq;
+        } else {
+            return &priv->wrreq[size_to_order(len)];
+        }
     }
     return NULL;
 }
@@ -423,11 +449,17 @@ static struct list_head *epno_to_req_list(struct apbridge_dev_s *priv,
         return &priv->ctrlreq;
     case CONFIG_APBRIDGE_EPINTIN:
         return &priv->intreq;
-    case CONFIG_APBRIDGE_EPBULKIN:
-        *n = APBRIDGE_REQ_ORDER_MAX;
-        return &priv->wrreq[0];
-    case CONFIG_APBRIDGE_EPBULKOUT:
-        return &priv->rdreq;
+    default:
+        /* 
+         * EP with even address (except ep0) are bulk out endpoint.
+         * EP with odd address (except ep1) are bulk in endpoint.
+         */
+        if (epno % 2 == 0) {
+            return &priv->rdreq;
+        } else {
+            *n = APBRIDGE_REQ_ORDER_MAX;
+            return &priv->wrreq[0];
+        }
     }
     return NULL;
 }
@@ -497,10 +529,18 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
 int unipro_to_usb(struct apbridge_dev_s *priv, const void *payload,
                   size_t len)
 {
+    uint8_t epno;
+    unsigned int cportid;
+    struct gb_operation_hdr *hdr;
+
     if (len > APBRIDGE_REQ_SIZE_MAX)
         return -EINVAL;
 
-    return _to_usb(priv, CONFIG_APBRIDGE_EPBULKIN, payload, len);
+    hdr = (struct gb_operation_hdr *) payload;
+    cportid = hdr->pad[1] << 8 | hdr->pad[0];
+    epno = priv->cport_to_epin_n[cportid];
+
+    return _to_usb(priv, epno, payload, len);
 }
 
 /**
@@ -790,12 +830,12 @@ static void usbclass_resetconfig(struct apbridge_dev_s *priv)
 
 static int usbclass_setconfig(struct apbridge_dev_s *priv, uint8_t config)
 {
-    struct list_head *iter;
+    struct list_head *iter, *next;
     struct usbdev_req_s *req;
     struct apbridge_req_s *reqcontainer;
     struct usb_epdesc_s epdesc;
     uint16_t mxpacket;
-    int i;
+    int i, j;
     int ret = 0;
 
 #if CONFIG_DEBUG
@@ -845,15 +885,23 @@ static int usbclass_setconfig(struct apbridge_dev_s *priv, uint8_t config)
     }
 
     /* Queue read requests in the bulk OUT endpoint */
-    list_foreach(&priv->rdreq, iter) {
-        reqcontainer = list_entry(iter, struct apbridge_req_s, list);
-        req = reqcontainer->req;
-        req->callback = usbclass_rdcomplete;
-        ret = EP_SUBMIT(priv->ep[CONFIG_APBRIDGE_EPBULKOUT], req);
+    /* TODO test if there are enough request */
+    next = iter = priv->rdreq.next;
+    for (i = 0; i < APBRIDGE_NBULKS; i++) {
+        for (j = 0; j < APBRIDGE_NREQS; j++) {
+            list_del(iter);
+            reqcontainer = list_entry(iter, struct apbridge_req_s, list);
+            req = reqcontainer->req;
+            req->callback = usbclass_rdcomplete;
+            ret = EP_SUBMIT(priv->ep[CONFIG_APBRIDGE_EPBULKOUT + i * 2],
+                            req);
+            /* TODO: Test if list is not empty */
+            next = iter = next->next;
 
-        if (ret != OK) {
-            usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_RDSUBMIT), (uint16_t) - ret);
-            goto errout;
+            if (ret != OK) {
+                usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_RDSUBMIT), (uint16_t) - ret);
+                goto errout;
+            }
         }
     }
 
@@ -912,7 +960,10 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
 {
     struct apbridge_dev_s *priv;
     struct apbridge_usb_driver *drv;
+    struct gb_operation_hdr *hdr;
     int ret;
+    int ep_n;
+    unsigned int cportid;
 
     /* Sanity check */
 
@@ -933,7 +984,16 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
     switch (req->result) {
     case OK:                    /* Normal completion */
         usbtrace(TRACE_CLASSRDCOMPLETE, 0);
-        drv->usb_to_unipro(priv, req->buf, req->xfrd);
+        ep_n = BULKEP_TO_N(ep);
+        /* Legacy ep: copy from payload cportid */
+        if (ep_n != 0) {
+            hdr = (struct gb_operation_hdr *)req->buf;
+            cportid = priv->epout_to_cport_n[ep_n];
+            hdr->pad[0] = cportid & 0xff;
+            hdr->pad[1] = (cportid >> 8) & 0xff;
+        }
+
+        drv->usb_to_unipro(priv, req->buf , req->xfrd);
         break;
 
     case -ESHUTDOWN:           /* Disconnection */
@@ -1086,6 +1146,23 @@ static void free_preallocated_request(struct usbdev_ep_s *ep)
     }
 }
 
+static void g_usbdesc_init(void) {
+    int i;
+    struct usb_epdesc_s *usbdesc;
+
+    for (i = 0; i < APBRIDGE_NBULKS; i++) {
+        usbdesc = malloc(sizeof(struct usb_epdesc_s));
+        memcpy(usbdesc, &g_epbulkoutdesc, sizeof(struct usb_epdesc_s));
+        usbdesc->addr += i * 2;
+        g_usbdesc[i * 2 + 2] = usbdesc;
+
+        usbdesc = malloc(sizeof(struct usb_epdesc_s));
+        memcpy(usbdesc, &g_epbulkindesc, sizeof(struct usb_epdesc_s));
+        usbdesc->addr += i * 2;
+        g_usbdesc[i * 2 + 3] = usbdesc;
+    }
+}
+
 /****************************************************************************
  * Name: usbclass_bind
  *
@@ -1110,6 +1187,8 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
     /* Bind the structures */
 
     priv->usbdev = dev;
+
+     g_usbdesc_init();
 
     /* Allocate endpoints */
 
@@ -1137,14 +1216,14 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
     list_init(&priv->rdreq);
     prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKOUT],
                      usbclass_rdcomplete, APBRIDGE_REQ_SIZE_IN,
-                     APBRIDGE_NREQS);
+                     APBRIDGE_NREQS * APBRIDGE_NBULKS);
 
     len = APBRIDGE_REQ_SIZE_MAX >> (APBRIDGE_REQ_ORDER_MAX - 1);
     for (i = 0; i < APBRIDGE_REQ_ORDER_MAX; i++) {
         list_init(&priv->wrreq[i]);
         prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
                          usbclass_wrcomplete, len << i,
-                         APBRIDGE_NREQS);
+                         APBRIDGE_NREQS * APBRIDGE_NBULKS);
      }
 
     /* Report if we are selfpowered */
@@ -1225,7 +1304,6 @@ static void usbclass_unbind(struct usbdevclass_driver_s *driver,
             free_preallocated_request(priv->ep[i]);
             freeep(priv, i);
         }
-
     }
 }
 
@@ -1569,6 +1647,7 @@ int usbdev_apbinitialize(struct apbridge_usb_driver *driver)
     struct apbridge_dev_s *priv;
     struct apbridge_driver_s *drvr;
     int ret;
+    int i;
 
     /* Reset USB HSIC HUB */
     hsic_hub_reset();
@@ -1591,6 +1670,10 @@ int usbdev_apbinitialize(struct apbridge_usb_driver *driver)
 
     memset(priv, 0, sizeof(struct apbridge_dev_s));
     priv->driver = driver;
+
+    for (i = 0; i < CPORT_MAX; i++) {
+        priv->cport_to_epin_n[i] = CONFIG_APBRIDGE_EPBULKIN;
+    }
     sem_init(&priv->config_sem, 0, 0);
 
     /* Initialize the USB class driver structure */
