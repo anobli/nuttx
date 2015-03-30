@@ -41,6 +41,7 @@ AOBJS		= $(ASRCS:.S=$(OBJEXT))
 
 CSRCS		= up_boot.c up_debug.c svc.c interface.c
 CSRCS		+= tsb_switch.c
+CSRCS		+= ina230.c tca6424.c pwrm.c
 
 ifeq ($(CONFIG_ARCH_BOARD_ARA_BDB1B_SVC),y)
 CSRCS		+= board-bdb1b.c
