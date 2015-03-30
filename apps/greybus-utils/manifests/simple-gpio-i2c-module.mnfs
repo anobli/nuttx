@@ -36,6 +36,18 @@ interface = 0
 id = 4
 protocol = 0x03
 
+; GPIO protocol on CPort 6
+[cport-descriptor "6"]
+interface = 0
+id = 6
+protocol = 0x11
+
+; I2C protocol on CPort 7
+[cport-descriptor "7"]
+interface = 0
+id = 7
+protocol = 0x11
+
 ; Interface 0
 [interface-descriptor "0"]
 id = 0
