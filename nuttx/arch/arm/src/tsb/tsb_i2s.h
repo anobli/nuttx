@@ -31,15 +31,8 @@
 #ifndef __ARCH_ARM_TSB_TSB_I2S_H
 #define __ARCH_ARM_TSB_TSB_I2S_H
 
-enum tsb_i2s_clk_role {
-    TSB_I2S_CLK_ROLE_INVALID,
-    TSB_I2S_CLK_ROLE_MASTER,
-    TSB_I2S_CLK_ROLE_SLAVE,
-};
-
 struct tsb_i2s_init_data {
-    enum tsb_i2s_clk_role   mclk_role;
-    uint32_t                mclk_freq;
+    uint32_t                slave_mclk_freq;
 };
 
 #endif /* __ARCH_ARM_TSB_TSB_I2S_H */

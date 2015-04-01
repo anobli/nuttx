@@ -52,9 +52,6 @@
 #include "tsb_scm.h"
 #include "tsb_i2s.h"
 
-#define TSB_I2S_ENABLE_SLAVE_MODE   /* XXX - slave mode broken right now */
-                                    /* change mclk_role in device_table.c */
-
 #define TSB_I2S_DRIVER_NAME                             "tsb i2s driver"
 
 #if 0 /* XXX */
@@ -166,6 +163,12 @@ enum tsb_i2s_block {
     TSB_I2S_BLOCK_SI,
 };
 
+enum tsb_i2s_clk_role {
+    TSB_I2S_CLK_ROLE_INVALID,
+    TSB_I2S_CLK_ROLE_MASTER,
+    TSB_I2S_CLK_ROLE_SLAVE,
+};
+
 struct tsb_i2s_info {
     struct device                   *dev;
     uint32_t                        flags;
@@ -188,7 +191,7 @@ struct tsb_i2s_info {
     int                             sierr_irq;
     int                             si_irq;
     enum tsb_i2s_clk_role           mclk_role;
-    uint32_t                        mclk_freq;
+    uint32_t                        slave_mclk_freq;
     struct device_i2s_configuration config;
 
     /* XXX for testing only -- remove */
@@ -746,12 +749,7 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     /*
      * The master clock (MCLK) may use an internal or external source.
      * When internal, it uses output from the PLL; when external, it
-     * uses the I2S_MCLK pin.  This is a hardware configuration option
-     * and the driver is told which by init_data in the device_table[].
-     *
-     * XXX Slave mode can change tsb_i2s_config_table[] so need to create
-     * dynamically or punt by putting the table in its own file which is
-     * initialized by the h/w designer.
+     * uses the I2S_MCLK pin.
      */
     if (info->mclk_role != TSB_I2S_CLK_ROLE_MASTER)
         i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_MASTER_CLOCK_SEL;
@@ -802,30 +800,63 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
         return -EINVAL; /* config already checked so should never happen */
     }
 
-    switch (config->sample_frequency) {
-    case 192000:
-        break;
-    case 96000:
-        if ((config->ll_protocol == DEVICE_I2S_PROTOCOL_PCM) &&
-             (config->bytes_per_channel <= 2)) {
+    if (info->mclk_role == TSB_I2S_CLK_ROLE_MASTER) {
+        switch (config->sample_frequency) {
+        case 192000:
+            break;
+        case 96000:
+            if ((config->ll_protocol == DEVICE_I2S_PROTOCOL_PCM) &&
+                 (config->bytes_per_channel <= 2)) {
 
-            i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
-        }
-        break;
-    case 48000:
-        if (((config->ll_protocol == DEVICE_I2S_PROTOCOL_PCM) &&
-             (config->bytes_per_channel > 2)) ||
-            ((config->ll_protocol != DEVICE_I2S_PROTOCOL_PCM) &&
-             (config->bytes_per_channel <= 2))) {
+                i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
+            }
+            break;
+        case 48000:
+            if (((config->ll_protocol == DEVICE_I2S_PROTOCOL_PCM) &&
+                 (config->bytes_per_channel > 2)) ||
+                ((config->ll_protocol != DEVICE_I2S_PROTOCOL_PCM) &&
+                 (config->bytes_per_channel <= 2))) {
 
+                i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
+            }
+            break;
+        case 24000:
             i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
+            break;
+        default:
+            return -EINVAL; /* config already checked so should never happen */
         }
-        break;
-    case 24000:
-        i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
-        break;
-    default:
-        return -EINVAL; /* config already checked so should never happen */
+    } else {
+        if (info->slave_mclk_freq) {
+            uint32_t sample_freq, bits_per_chan, channels, f, mclk_freq;
+
+            sample_freq = config->sample_frequency;
+            bits_per_chan = (config->bytes_per_channel <= 2) ? 16 : 32;
+
+            switch (config->ll_protocol) {
+            case DEVICE_I2S_PROTOCOL_PCM:
+                channels = 1;
+                break;
+            case DEVICE_I2S_PROTOCOL_I2S:
+                channels = 2;
+                break;
+            case DEVICE_I2S_PROTOCOL_LR_STEREO:
+                channels = 2;
+                break;
+            default:
+                channels = 0;
+            }
+
+            f = sample_freq * bits_per_chan * channels;
+            mclk_freq = info->slave_mclk_freq / 4;
+
+            if (f == (mclk_freq / 2))
+                i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
+            else if (f != mclk_freq)
+                return -EINVAL;
+        } else {
+            return -EINVAL;
+        }
     }
 
     tsb_i2s_init_block(info, TSB_I2S_BLOCK_SO);
@@ -1817,16 +1848,9 @@ lldbg("LL i2s info struct: 0x%08p\n", info); /* XXX */
 
     tsb_clr_pinshare(TSB_PIN_ETM);
 
-    info->mclk_role = init_data->mclk_role;
-    info->mclk_freq = init_data->mclk_freq;
+    info->mclk_role = TSB_I2S_CLK_ROLE_MASTER; /* XXX */
 
-#ifndef TSB_I2S_ENABLE_SLAVE_MODE
-    /* External MCLK not supported -- changes tsb_i2s_config_table[] */
-    if (info->mclk_role != TSB_I2S_CLK_ROLE_MASTER) {
-        ret = ERROR;
-        goto err_detach_si_irq;
-    }
-#endif
+    info->slave_mclk_freq = init_data->slave_mclk_freq;
 
     info->dev = dev;
     dev->private = info;
@@ -1836,10 +1860,6 @@ lldbg("LL i2s info struct: 0x%08p\n", info); /* XXX */
 
     return OK;
 
-#ifndef TSB_I2S_ENABLE_SLAVE_MODE
-err_detach_si_irq:
-    irq_detach(info->si_irq);
-#endif
 err_detach_sierr_irq:
     irq_detach(info->sierr_irq);
 err_detach_so_irq:

@@ -96,8 +96,7 @@ static struct device_resource tsb_i2s_resources_0[] = {
 
 #if defined(CONFIG_ARCH_CHIP_TSB_I2S) || defined(CONFIG_ARCH_CHIP_TSB_I2S_STUB)
 struct tsb_i2s_init_data tsb_i2s_data = {
-    .mclk_role  = TSB_I2S_CLK_ROLE_MASTER,
-    .mclk_freq  = 0, /* N/A */
+    .slave_mclk_freq  = 12288000,
 };
 #endif
 
