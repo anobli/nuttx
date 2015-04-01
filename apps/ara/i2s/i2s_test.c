@@ -428,8 +428,12 @@ static int start_streaming(unsigned char is_master,
         config.ll_wclk_role = DEVICE_I2S_ROLE_SLAVE;
     }
 
+    if (is_transmitter)
+        config.ll_wclk_change_edge = DEVICE_I2S_EDGE_RISING;
+    else
+        config.ll_wclk_change_edge = DEVICE_I2S_EDGE_FALLING;
+
     config.ll_wclk_polarity = DEVICE_I2S_POLARITY_NORMAL;
-    config.ll_wclk_change_edge = DEVICE_I2S_EDGE_RISING;
     config.ll_wclk_tx_edge = DEVICE_I2S_EDGE_FALLING;
     config.ll_wclk_rx_edge = DEVICE_I2S_EDGE_RISING;
 

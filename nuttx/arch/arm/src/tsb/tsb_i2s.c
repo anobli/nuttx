@@ -940,19 +940,28 @@ static int tsb_i2s_block_is_busy(struct tsb_i2s_info *info,
 static int tsb_i2s_start_block(struct tsb_i2s_info *info,
                                enum tsb_i2s_block block)
 {
-    uint32_t mask = TSB_I2S_REG_START_START;
     unsigned int limit;
+    uint32_t v;
 
     if (tsb_i2s_block_is_busy(info, block))
         return 0;
 
+    tsb_i2s_write(info, block, TSB_I2S_REG_START, TSB_I2S_REG_START_START);
+
+    do {
+        v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
+    } while (v & TSB_I2S_REG_START_START);
+
     if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
-        tsb_i2s_mute(info, TSB_I2S_BLOCK_SO, 0);
+        tsb_i2s_mute(info, block, 0);
 
-        mask |= TSB_I2S_REG_START_SPK_MIC_START;
+        tsb_i2s_write(info, block, TSB_I2S_REG_START,
+                      TSB_I2S_REG_START_SPK_MIC_START);
+
+        do {
+            v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
+        } while (v & TSB_I2S_REG_START_SPK_MIC_START);
     }
-
-    tsb_i2s_write(info, block, TSB_I2S_REG_START, mask);
 
     for (limit = 1000; !tsb_i2s_block_is_busy(info, block) && --limit; );
 
@@ -978,7 +987,7 @@ static int tsb_i2s_stop_block(struct tsb_i2s_info *info,
         if (!limit)
             return -EIO;
 
-        tsb_i2s_mute(info, TSB_I2S_BLOCK_SO, 1);
+        tsb_i2s_mute(info, block, 1);
 
         for (limit = 1000;
              (tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) &
@@ -1012,6 +1021,15 @@ static int tsb_i2s_start_clocking(struct tsb_i2s_info *info,
         if (ret)
             return ret;
     }
+
+
+
+    ret = tsb_i2s_start_block(info, TSB_I2S_BLOCK_SC);
+    if (ret)
+        return ret;
+
+
+
 
     ret = tsb_i2s_start_block(info, block);
     if (ret && (info->config.ll_bclk_role == DEVICE_I2S_ROLE_MASTER))
@@ -1085,6 +1103,8 @@ static uint32_t tsb_i2s_fifo_data(struct tsb_i2s_info *info, uint32_t w)
 
     return fifo_w;
 }
+uint32_t mag_fifo_cnt = 0;
+uint32_t mag_fifo_err = 0;
 
 static int tsb_i2s_drain_fifo(struct tsb_i2s_info *info,
                               enum device_i2s_event *event)
@@ -1097,9 +1117,11 @@ static int tsb_i2s_drain_fifo(struct tsb_i2s_info *info,
     dp = ring_buf_get_tail(info->rx_rb);
 
     for (i = 0; i < ring_buf_space(info->rx_rb); i += sizeof(*dp)) {
+mag_fifo_cnt++;
         intstat = tsb_i2s_read(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INTSTAT);
 
         if (intstat & TSB_I2S_REG_INT_ERROR_MASK) {
+mag_fifo_err++;
             *event = tsb_i2s_intstat2event(intstat);
             ret = -EIO;
             break;
@@ -1121,6 +1143,8 @@ static int tsb_i2s_drain_fifo(struct tsb_i2s_info *info,
     return ret;
 }
 
+uint32_t mag_rx_loop = 0;
+
 static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
 {
     enum device_i2s_event event = DEVICE_I2S_EVENT_NONE;
@@ -1129,7 +1153,9 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
     while (ring_buf_is_producers(info->rx_rb) &&
            !ring_buf_is_full(info->rx_rb)) {
 
-        if (ring_buf_len(info->rx_rb) % 4) {
+mag_rx_loop++;
+
+        if (ring_buf_space(info->rx_rb) % 4) {
             event = DEVICE_I2S_EVENT_DATA_LEN;
             ret = -EINVAL;
             break;
@@ -1168,13 +1194,20 @@ static int tsb_i2s_start_receiver(struct tsb_i2s_info *info)
 {
     int ret;
 
+    tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI,
+                        TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                        TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+
     ret = tsb_i2s_start_clocking(info, TSB_I2S_BLOCK_SI);
     if (ret)
         return ret;
 
     info->flags |= TSB_I2S_FLAG_RX_ACTIVE;
 
-    return tsb_i2s_rx_data(info);
+    return 0;
 }
 
 static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info)
@@ -1389,6 +1422,10 @@ static int tsb_i2s_irq_si_err_handler(int irq, void *context)
     return OK;
 }
 
+uint32_t mag_si_cnt_a = 0;
+uint32_t mag_si_cnt_b = 0;
+uint32_t mag_si_intstat = 0;
+
 static int tsb_i2s_irq_si_handler(int irq, void *context)
 {
     struct tsb_i2s_info *info = saved_dev->private;
@@ -1398,10 +1435,16 @@ static int tsb_i2s_irq_si_handler(int irq, void *context)
 
     intstat = tsb_i2s_read(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INTSTAT);
 
-    if (intstat & TSB_I2S_REG_INT_INT)
+    if (intstat & TSB_I2S_REG_INT_INT) {
+        mag_si_cnt_a++;
         tsb_i2s_rx_data(info);
+    }
+    mag_si_cnt_b++;
+    mag_si_intstat = intstat;
 
+#if 0 /* XXX */
     tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, intstat);
+#endif
 
     return OK;
 }
@@ -1848,7 +1891,7 @@ lldbg("LL i2s info struct: 0x%08p\n", info); /* XXX */
 
     tsb_clr_pinshare(TSB_PIN_ETM);
 
-    info->mclk_role = TSB_I2S_CLK_ROLE_MASTER; /* XXX */
+    info->mclk_role = TSB_I2S_CLK_ROLE_SLAVE; /* XXX */
 
     info->slave_mclk_freq = init_data->slave_mclk_freq;
 
