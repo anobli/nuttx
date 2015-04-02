@@ -1027,15 +1027,6 @@ static int tsb_i2s_start_clocking(struct tsb_i2s_info *info,
             return ret;
     }
 
-
-
-    ret = tsb_i2s_start_block(info, TSB_I2S_BLOCK_SC);
-    if (ret)
-        return ret;
-
-
-
-
     ret = tsb_i2s_start_block(info, block);
     if (ret && (info->config.ll_bclk_role == DEVICE_I2S_ROLE_MASTER))
         tsb_i2s_stop_block(info, TSB_I2S_BLOCK_SC);
