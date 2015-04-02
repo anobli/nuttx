@@ -1099,8 +1099,6 @@ static uint32_t tsb_i2s_fifo_data(struct tsb_i2s_info *info, uint32_t w)
 
     return fifo_w;
 }
-uint32_t mag_fifo_cnt = 0;
-uint32_t mag_fifo_err = 0;
 
 static int tsb_i2s_drain_fifo(struct tsb_i2s_info *info,
                               enum device_i2s_event *event)
@@ -1113,11 +1111,9 @@ static int tsb_i2s_drain_fifo(struct tsb_i2s_info *info,
     dp = ring_buf_get_tail(info->rx_rb);
 
     for (i = 0; i < ring_buf_space(info->rx_rb); i += sizeof(*dp)) {
-mag_fifo_cnt++;
         intstat = tsb_i2s_read(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INTSTAT);
 
         if (intstat & TSB_I2S_REG_INT_ERROR_MASK) {
-mag_fifo_err++;
             *event = tsb_i2s_intstat2event(intstat);
             ret = -EIO;
             break;
@@ -1139,8 +1135,6 @@ mag_fifo_err++;
     return ret;
 }
 
-uint32_t mag_rx_loop = 0;
-
 static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
 {
     enum device_i2s_event event = DEVICE_I2S_EVENT_NONE;
@@ -1148,8 +1142,6 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
 
     while (ring_buf_is_producers(info->rx_rb) &&
            !ring_buf_is_full(info->rx_rb)) {
-
-mag_rx_loop++;
 
         if (ring_buf_space(info->rx_rb) % 4) {
             event = DEVICE_I2S_EVENT_DATA_LEN;
@@ -1418,10 +1410,6 @@ static int tsb_i2s_irq_si_err_handler(int irq, void *context)
     return OK;
 }
 
-uint32_t mag_si_cnt_a = 0;
-uint32_t mag_si_cnt_b = 0;
-uint32_t mag_si_intstat = 0;
-
 static int tsb_i2s_irq_si_handler(int irq, void *context)
 {
     struct tsb_i2s_info *info = saved_dev->private;
@@ -1431,12 +1419,8 @@ static int tsb_i2s_irq_si_handler(int irq, void *context)
 
     intstat = tsb_i2s_read(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INTSTAT);
 
-    if (intstat & TSB_I2S_REG_INT_INT) {
-        mag_si_cnt_a++;
+    if (intstat & TSB_I2S_REG_INT_INT)
         tsb_i2s_rx_data(info);
-    }
-    mag_si_cnt_b++;
-    mag_si_intstat = intstat;
 
 #if 0 /* XXX */
     tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, intstat);
