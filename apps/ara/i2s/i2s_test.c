@@ -174,7 +174,11 @@ static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
     switch (event) {
     case DEVICE_I2S_EVENT_TX_COMPLETE:
         i2s_test_stats.tx_cnt++;
-        break;
+
+        if (ring_buf_is_producers(rb))
+            rb_fill_and_pass(rb, NULL);
+
+        return;
     case DEVICE_I2S_EVENT_UNDERRUN:
         lldbg("CB EVENT: DEVICE_I2S_EVENT_UNDERRUN\n");
         break;
@@ -194,8 +198,7 @@ static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
         lldbg("CB EVENT: Unknown\n");
     }
 
-    if (ring_buf_is_producers(rb))
-        rb_fill_and_pass(rb, NULL);
+    sem_post(&done_sem);
 }
 
 static int start_transmitter(struct device *dev)
@@ -278,10 +281,16 @@ static void i2s_rx_callback(struct ring_buf *rb,
     switch (event) {
     case DEVICE_I2S_EVENT_RX_COMPLETE:
         i2s_test_stats.rx_cnt++;
+
 #ifdef I2S_TEST_CHECK_RX_DATA
         i2s_rx_check_data(rb);
 #endif
-        break;
+        if (ring_buf_is_consumers(rb)) {
+            ring_buf_reset(rb);
+            ring_buf_pass(rb);
+        }
+
+        return;
     case DEVICE_I2S_EVENT_UNDERRUN:
         lldbg("CB EVENT: DEVICE_I2S_EVENT_UNDERRUN\n");
         break;
@@ -301,10 +310,7 @@ static void i2s_rx_callback(struct ring_buf *rb,
         lldbg("CB EVENT: Unknown\n");
     }
 
-    if (ring_buf_is_consumers(rb)) {
-        ring_buf_reset(rb);
-        ring_buf_pass(rb);
-    }
+    sem_post(&done_sem);
 }
 
 static int start_receiver(struct device *dev)
