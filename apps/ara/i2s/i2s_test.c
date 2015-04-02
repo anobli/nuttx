@@ -253,13 +253,13 @@ static int start_transmitter(struct i2s_test_info *info, struct device *dev)
 
     ret = device_i2s_prepare_transmitter(dev, rb, i2s_tx_callback, info);
     if (ret) {
-        fprintf(stderr, "prepare_tx failed\n");
+        fprintf(stderr, "prepare_tx failed: %d\n", ret);
         goto err_free_ring;
     }
 
     ret = device_i2s_start_transmitter(dev);
     if (ret) {
-        fprintf(stderr, "start_tx failed\n");
+        fprintf(stderr, "start_tx failed: %d\n", ret);
         goto err_shutdown_transmitter;
     }
 
@@ -279,11 +279,11 @@ static void stop_transmitter(struct device *dev)
 
     ret = device_i2s_stop_transmitter(dev);
     if (ret)
-        fprintf(stderr, "stop_tx failed\n");
+        fprintf(stderr, "stop_tx failed: %d\n", ret);
 
     ret = device_i2s_shutdown_transmitter(dev);
     if (ret)
-        fprintf(stderr, "shutdown_tx failed\n");
+        fprintf(stderr, "shutdown_tx failed: %d\n", ret);
 }
 
 static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
@@ -381,13 +381,13 @@ static int start_receiver(struct i2s_test_info *info, struct device *dev)
 
     ret = device_i2s_prepare_receiver(dev, rb, i2s_rx_callback, info);
     if (ret) {
-        fprintf(stderr, "prepare_rx failed\n");
+        fprintf(stderr, "prepare_rx failed: %d\n", ret);
         goto err_free_ring;
     }
 
     ret = device_i2s_start_receiver(dev);
     if (ret) {
-        fprintf(stderr, "start_rx failed\n");
+        fprintf(stderr, "start_rx failed: %d\n", ret);
         goto err_shutdown_receiver;
     }
 
@@ -407,11 +407,11 @@ static void stop_receiver(struct device *dev)
 
     ret = device_i2s_stop_receiver(dev);
     if (ret)
-        fprintf(stderr, "stop_rx failed\n");
+        fprintf(stderr, "stop_rx failed: %d\n", ret);
 
     ret = device_i2s_shutdown_receiver(dev);
     if (ret)
-        fprintf(stderr, "shutdown_rx failed\n");
+        fprintf(stderr, "shutdown_rx failed: %d\n", ret);
 }
 
 static int start_streaming(struct i2s_test_info *info)
@@ -431,7 +431,7 @@ static int start_streaming(struct i2s_test_info *info)
 
     ret = device_i2s_get_supported_configurations(dev, &config_count, &configs);
     if (ret) {
-        fprintf(stderr, "get_supported_configs failed\n");
+        fprintf(stderr, "get_supported_configs failed; %d\n", ret);
         goto err_dev_close;
     }
 
@@ -508,7 +508,7 @@ static int start_streaming(struct i2s_test_info *info)
 
     ret = device_i2s_set_configuration(dev, &config);
     if (ret) {
-        fprintf(stderr, "set_configs failed\n");
+        fprintf(stderr, "set_configs failed: %d\n", ret);
         goto err_dev_close;
     }
 
