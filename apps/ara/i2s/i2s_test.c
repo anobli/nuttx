@@ -53,12 +53,6 @@
 #define SIGTERM     15
 #endif
 
-#define SAMPLES_PER_ENTRY   100
-
-#define RB_ENTRIES          64
-#define RB_HEADROOM         0
-#define RB_TAILROOM         0
-
 struct i2s_test_stats {
     unsigned int    tx_cnt;
     unsigned int    tx_err_cnt;
@@ -68,10 +62,13 @@ struct i2s_test_stats {
 };
 
 struct i2s_test_info {
-    uint8_t                 is_master;
+    uint8_t                 is_mclk_master;
+    uint8_t                 is_bclk_master;
     uint8_t                 is_transmitter;
     uint8_t                 is_i2s;
     uint8_t                 check_rx_data;
+    unsigned long           rb_entries;
+    unsigned long           samples_per_rb_entry;
     uint16_t                left;
     uint16_t                right;
     struct i2s_test_stats   stats;
@@ -86,50 +83,59 @@ struct i2s_sample {
 
 static void print_usage(char *argv[])
 {
-    printf("Usage: %s <-m|-s> <-r|-t> <-i|-l> [-c]\n", argv[0]);
-    printf("\t-m    be mclk, bclk, lrclk master)\n");
-    printf("\t-s    be mclk, bclk, lrclk slave)\n");
-    printf("\t-r    receive i2s data\n");
-    printf("\t-t    transmit i2s data\n");
+    printf("Usage: %s <-M|-m> <-B|-b> <-t|-r> <-i|-l> [-c] "
+           "<rb entries> <sample per rb entry>\n", argv[0]);
+    printf("\t-M    be MCLK master\n");
+    printf("\t-m    be MCLK slave\n");
+    printf("\t-B    be BCLK & LRCLK master\n");
+    printf("\t-b    be BCLK & LRCLK slave\n");
+    printf("\t-t    transmit audio data\n");
+    printf("\t-r    receive audio data\n");
     printf("\t-i    use I2S protocol\n");
     printf("\t-l    use LR Stereo protocol\n");
-    printf("\t-c    check receive data (valid only with -r)\n");
+    printf("\t-c    check receive data (only valid with -r)\n");
 }
 
 static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
 {
-    int mcnt, scnt, rcnt, tcnt, icnt, lcnt, ccnt, errcnt;
+    int Mcnt, mcnt, Bcnt, bcnt, tcnt, rcnt, icnt, lcnt, ccnt, errcnt;
     int option;
 
-    mcnt = scnt = rcnt = tcnt = icnt = lcnt = ccnt = errcnt = 0;
+    Mcnt = mcnt = Bcnt = bcnt = tcnt = rcnt = icnt = lcnt = ccnt = errcnt = 0;
 
-    if ((argc != 4) && (argc != 5))
+    if ((argc != 7) && (argc != 8)) {
+printf("fail 1 - argc: %d\n", argc);
         return -EINVAL;
+    }
 
-    while ((option = getopt(argc, argv, "msrtil")) != ERROR) {
+    while ((option = getopt(argc, argv, "MmBbtrilc")) != ERROR) {
         switch(option) {
+        case 'M':
+            info->is_mclk_master = 1;
+            Mcnt++;
+            break;
         case 'm':
-            info->is_master = 1;
             mcnt++;
             break;
-        case 's':
-            info->is_master = 0;
-            scnt++;
+        case 'B':
+            info->is_bclk_master = 1;
+            Bcnt++;
             break;
-        case 'r':
-            info->is_transmitter = 0;
-            rcnt++;
+        case 'b':
+            bcnt++;
             break;
         case 't':
             info->is_transmitter = 1;
             tcnt++;
+            break;
+        case 'r':
+            rcnt++;
             break;
         case 'i':
             info->is_i2s = 1;
             icnt++;
             break;
         case 'l':
-            info->is_i2s = 0;
             lcnt++;
             break;
         case 'c':
@@ -141,13 +147,32 @@ static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
         }
     }
 
-    if (((mcnt + scnt) != 1) || ((rcnt + tcnt) != 1) || ((icnt + lcnt) != 1) ||
-        (ccnt && !rcnt) || errcnt) {
+    if (((Mcnt + mcnt) != 1) || ((Bcnt + bcnt) != 1) || ((tcnt + rcnt) != 1) ||
+        ((icnt + lcnt) != 1) || (ccnt && !rcnt) || errcnt) {
+printf("fail 2\n");
+printf("argc: %d, Mcnt: %d, mcnt: %d, Bcnt: %d, bcnt: %d, tcnt: %d, rcnt: %d, "
+        "icnt: %d, lcnt: %d, ccnt: %d, errcnt: %d\n",
+        argc, Mcnt, mcnt, Bcnt, bcnt, tcnt, rcnt, icnt, lcnt, ccnt, errcnt);
 
         return -EINVAL;
     }
 
+    info->rb_entries = strtoul(argv[optind], NULL, 0);
+    info->samples_per_rb_entry = strtoul(argv[optind + 1], NULL, 0);
+
     return 0;
+}
+
+static void print_cmdline_summary(struct i2s_test_info *info)
+{
+    printf("\n");
+    printf("-> %s %s data as MCLK %s and BCLK/LRCLK %s\n",
+            info->is_transmitter ? "Transmitting" : "Receiving",
+            info->is_i2s ? "I2S" : "LR Stereo",
+            info->is_mclk_master ? "Master" : "Slave",
+            info->is_bclk_master ? "Master" : "Slave");
+    printf("   %u ring buffer entries of %u audio samples each\n",
+            info->rb_entries, info->samples_per_rb_entry);
 }
 
 static int rb_fill_and_pass(struct ring_buf *rb, void *arg)
@@ -218,9 +243,9 @@ static int start_transmitter(struct i2s_test_info *info, struct device *dev)
     int ret;
 
     /* 16-bit stereo */
-    rb = ring_buf_alloc_ring(RB_ENTRIES, RB_HEADROOM,
-                                 SAMPLES_PER_ENTRY * sizeof(struct i2s_sample),
-                                 RB_TAILROOM, rb_fill_and_pass, NULL, info);
+    rb = ring_buf_alloc_ring(info->rb_entries, 0,
+                         info->samples_per_rb_entry * sizeof(struct i2s_sample),
+                         0, rb_fill_and_pass, NULL, info);
     if (!rb) {
         fprintf(stderr, "ring_buf_alloc_ring failed\n");
         return -EIO;
@@ -288,7 +313,7 @@ static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
             info->right = sample[i].right;
         }
 
-        if (++info->right >= SAMPLES_PER_ENTRY) {
+        if (++info->right >= info->samples_per_rb_entry) {
             info->left++;
             info->right = 0;
         }
@@ -346,9 +371,9 @@ static int start_receiver(struct i2s_test_info *info, struct device *dev)
     int ret;
 
     /* 16-bit stereo */
-    rb = ring_buf_alloc_ring(RB_ENTRIES, RB_HEADROOM,
-                                 SAMPLES_PER_ENTRY * sizeof(struct i2s_sample),
-                                 RB_TAILROOM, NULL, NULL, NULL);
+    rb = ring_buf_alloc_ring(info->rb_entries, 0,
+                         info->samples_per_rb_entry * sizeof(struct i2s_sample),
+                         0, NULL, NULL, NULL);
     if (!rb) {
         fprintf(stderr, "ring_buf_alloc_ring failed\n");
         return -EIO;
@@ -422,10 +447,14 @@ static int start_streaming(struct i2s_test_info *info)
             ((info->is_i2s && (cfg->ll_protocol & DEVICE_I2S_PROTOCOL_I2S)) ||
              (!info->is_i2s && (cfg->ll_protocol &
                                 DEVICE_I2S_PROTOCOL_LR_STEREO))) &&
-            ((info->is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_MASTER) &&
-              (cfg->ll_wclk_role & DEVICE_I2S_ROLE_MASTER)) ||
-             (!info->is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_SLAVE) &&
-              (cfg->ll_wclk_role & DEVICE_I2S_ROLE_SLAVE))) &&
+            ((info->is_mclk_master &&
+              (cfg->ll_mclk_role & DEVICE_I2S_ROLE_MASTER)) ||
+             (!info->is_mclk_master &&
+              (cfg->ll_mclk_role & DEVICE_I2S_ROLE_SLAVE))) &&
+            ((info->is_bclk_master &&
+              (cfg->ll_bclk_role & DEVICE_I2S_ROLE_MASTER)) ||
+             (!info->is_bclk_master &&
+              (cfg->ll_bclk_role & DEVICE_I2S_ROLE_SLAVE))) &&
             (cfg->ll_wclk_polarity & DEVICE_I2S_POLARITY_NORMAL) &&
             (cfg->ll_wclk_change_edge & DEVICE_I2S_EDGE_FALLING) &&
             (cfg->ll_wclk_tx_edge & DEVICE_I2S_EDGE_FALLING) &&
@@ -452,13 +481,18 @@ static int start_streaming(struct i2s_test_info *info)
     else
         config.ll_protocol = DEVICE_I2S_PROTOCOL_LR_STEREO;
 
-    if (info->is_master) {
+    if (info->is_mclk_master)
         config.ll_mclk_role = DEVICE_I2S_ROLE_MASTER;
+    else
+        config.ll_mclk_role = DEVICE_I2S_ROLE_SLAVE;
+
+    /* Clear ll_mclk_slave_frequency so driver init_data is used */
+    config.ll_mclk_slave_frequency = 0;
+
+    if (info->is_bclk_master) {
         config.ll_bclk_role = DEVICE_I2S_ROLE_MASTER;
         config.ll_wclk_role = DEVICE_I2S_ROLE_MASTER;
     } else {
-        config.ll_mclk_role = DEVICE_I2S_ROLE_SLAVE;
-        /* Don't set ll_mclk_slave_frequency here so use init_data is used */
         config.ll_bclk_role = DEVICE_I2S_ROLE_SLAVE;
         config.ll_wclk_role = DEVICE_I2S_ROLE_SLAVE;
     }
@@ -529,13 +563,14 @@ int i2s_test_main(int argc, char *argv[])
         return 1;
     }
 
-    printf("info struct address: 0x%08x\n", info);
-
     ret = parse_cmdline(argc, argv, info);
     if (ret) {
         print_usage(argv);
         return 1;
     }
+
+    print_cmdline_summary(info);
+    printf("   info struct address: 0x%08x\n", info);
 
     sem_init(&done_sem, 0, 0);
 
