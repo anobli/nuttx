@@ -53,8 +53,6 @@
 #define SIGTERM     15
 #endif
 
-#define I2S_TEST_CHECK_RX_DATA
-
 #define SAMPLES_PER_ENTRY   100
 
 #define RB_ENTRIES          64
@@ -73,6 +71,7 @@ struct i2s_test_info {
     uint8_t                 is_master;
     uint8_t                 is_transmitter;
     uint8_t                 is_i2s;
+    uint8_t                 check_rx_data;
     uint16_t                left;
     uint16_t                right;
     struct i2s_test_stats   stats;
@@ -87,23 +86,24 @@ struct i2s_sample {
 
 static void print_usage(char *argv[])
 {
-    printf("Usage: %s <-m|-s> <-r|-t> <-i|-l>\n", argv[0]);
+    printf("Usage: %s <-m|-s> <-r|-t> <-i|-l> [-c]\n", argv[0]);
     printf("\t-m    be mclk, bclk, lrclk master)\n");
     printf("\t-s    be mclk, bclk, lrclk slave)\n");
     printf("\t-r    receive i2s data\n");
     printf("\t-t    transmit i2s data\n");
     printf("\t-i    use I2S protocol\n");
     printf("\t-l    use LR Stereo protocol\n");
+    printf("\t-c    check receive data (valid only with -r)\n");
 }
 
 static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
 {
-    int mcnt, scnt, rcnt, tcnt, icnt, lcnt, errcnt;
+    int mcnt, scnt, rcnt, tcnt, icnt, lcnt, ccnt, errcnt;
     int option;
 
-    mcnt = scnt = rcnt = tcnt = icnt = lcnt = errcnt = 0;
+    mcnt = scnt = rcnt = tcnt = icnt = lcnt = ccnt = errcnt = 0;
 
-    if (argc != 4)
+    if ((argc != 4) && (argc != 5))
         return -EINVAL;
 
     while ((option = getopt(argc, argv, "msrtil")) != ERROR) {
@@ -132,13 +132,17 @@ static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
             info->is_i2s = 0;
             lcnt++;
             break;
+        case 'c':
+            info->check_rx_data = 1;
+            ccnt++;
+            break;
         default:
             errcnt++;
         }
     }
 
     if (((mcnt + scnt) != 1) || ((rcnt + tcnt) != 1) || ((icnt + lcnt) != 1) ||
-        errcnt) {
+        (ccnt && !rcnt) || errcnt) {
 
         return -EINVAL;
     }
@@ -257,7 +261,6 @@ static void stop_transmitter(struct device *dev)
         fprintf(stderr, "shutdown_tx failed\n");
 }
 
-#ifdef I2S_TEST_CHECK_RX_DATA
 static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
 {
     struct i2s_sample *sample;
@@ -291,7 +294,6 @@ static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
         }
     }
 }
-#endif
 
 static void i2s_rx_callback(struct ring_buf *rb,
                                enum device_i2s_event event,
@@ -307,9 +309,9 @@ static void i2s_rx_callback(struct ring_buf *rb,
     case DEVICE_I2S_EVENT_RX_COMPLETE:
         info->stats.rx_cnt++;
 
-#ifdef I2S_TEST_CHECK_RX_DATA
-        i2s_rx_check_data(info, rb);
-#endif
+        if (info->check_rx_data)
+            i2s_rx_check_data(info, rb);
+
         if (ring_buf_is_consumers(rb)) {
             ring_buf_reset(rb);
             ring_buf_pass(rb);
