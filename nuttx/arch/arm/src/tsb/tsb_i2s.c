@@ -954,28 +954,19 @@ static int tsb_i2s_block_is_busy(struct tsb_i2s_info *info,
 static int tsb_i2s_start_block(struct tsb_i2s_info *info,
                                enum tsb_i2s_block block)
 {
+    uint32_t mask = TSB_I2S_REG_START_START;
     unsigned int limit;
-    uint32_t v;
 
     if (tsb_i2s_block_is_busy(info, block))
         return 0;
 
-    tsb_i2s_write(info, block, TSB_I2S_REG_START, TSB_I2S_REG_START_START);
-
-    do {
-        v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
-    } while (v & TSB_I2S_REG_START_START);
-
     if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
         tsb_i2s_mute(info, block, 0);
 
-        tsb_i2s_write(info, block, TSB_I2S_REG_START,
-                      TSB_I2S_REG_START_SPK_MIC_START);
-
-        do {
-            v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
-        } while (v & TSB_I2S_REG_START_SPK_MIC_START);
+        mask |= TSB_I2S_REG_START_SPK_MIC_START;
     }
+
+    tsb_i2s_write(info, block, TSB_I2S_REG_START, mask);
 
     for (limit = 1000; !tsb_i2s_block_is_busy(info, block) && --limit; );
 
