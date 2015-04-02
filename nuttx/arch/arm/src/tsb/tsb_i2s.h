@@ -32,7 +32,7 @@
 #define __ARCH_ARM_TSB_TSB_I2S_H
 
 struct tsb_i2s_init_data {
-    uint32_t                slave_mclk_freq;
+    uint32_t                mclk_slave_freq;
 };
 
 #endif /* __ARCH_ARM_TSB_TSB_I2S_H */

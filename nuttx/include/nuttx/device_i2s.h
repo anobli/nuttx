@@ -103,6 +103,8 @@ struct device_i2s_configuration {
     uint8_t     pad;
     uint32_t    spatial_locations;
     uint32_t    ll_protocol;
+    uint32_t    ll_mclk_slave_frequency;
+    uint8_t     ll_mclk_role;
     uint8_t     ll_bclk_role;
     uint8_t     ll_wclk_role;
     uint8_t     ll_wclk_polarity;

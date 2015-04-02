@@ -421,9 +421,12 @@ static int start_streaming(unsigned char is_master,
         config.ll_protocol = DEVICE_I2S_PROTOCOL_LR_STEREO;
 
     if (is_master) {
+        config.ll_mclk_role = DEVICE_I2S_ROLE_MASTER;
         config.ll_bclk_role = DEVICE_I2S_ROLE_MASTER;
         config.ll_wclk_role = DEVICE_I2S_ROLE_MASTER;
     } else {
+        config.ll_mclk_role = DEVICE_I2S_ROLE_SLAVE;
+        /* Don't set ll_mclk_slave_frequency here so use init_data is used */
         config.ll_bclk_role = DEVICE_I2S_ROLE_SLAVE;
         config.ll_wclk_role = DEVICE_I2S_ROLE_SLAVE;
     }

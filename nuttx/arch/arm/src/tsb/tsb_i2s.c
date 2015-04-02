@@ -163,12 +163,6 @@ enum tsb_i2s_block {
     TSB_I2S_BLOCK_SI,
 };
 
-enum tsb_i2s_clk_role {
-    TSB_I2S_CLK_ROLE_INVALID,
-    TSB_I2S_CLK_ROLE_MASTER,
-    TSB_I2S_CLK_ROLE_SLAVE,
-};
-
 struct tsb_i2s_info {
     struct device                   *dev;
     uint32_t                        flags;
@@ -190,8 +184,7 @@ struct tsb_i2s_info {
     int                             so_irq;
     int                             sierr_irq;
     int                             si_irq;
-    enum tsb_i2s_clk_role           mclk_role;
-    uint32_t                        slave_mclk_freq;
+    uint32_t                        mclk_slave_freq;
     struct device_i2s_configuration config;
 
     /* XXX for testing only -- remove */
@@ -222,6 +215,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
                                   DEVICE_I2S_BYTE_ORDER_LE,
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FC,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_PCM,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -244,6 +239,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
                                   DEVICE_I2S_BYTE_ORDER_LE,
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FC,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_PCM,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -266,6 +263,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
                                   DEVICE_I2S_BYTE_ORDER_LE,
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FC,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_PCM,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -289,6 +288,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_I2S,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -310,6 +311,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_LR_STEREO,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -332,6 +335,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
                                   DEVICE_I2S_BYTE_ORDER_LE,
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FC,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_PCM,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -355,6 +360,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_I2S,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -377,6 +384,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_LR_STEREO,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -400,6 +409,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_I2S,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -422,6 +433,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_LR_STEREO,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -445,6 +458,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_I2S,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -467,6 +482,8 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
         .spatial_locations      = DEVICE_I2S_SPATIAL_LOCATION_FL |
                                   DEVICE_I2S_SPATIAL_LOCATION_FR,
         .ll_protocol            = DEVICE_I2S_PROTOCOL_LR_STEREO,
+        .ll_mclk_role           = DEVICE_I2S_ROLE_MASTER |
+                                  DEVICE_I2S_ROLE_SLAVE,
         .ll_bclk_role           = DEVICE_I2S_ROLE_MASTER |
                                   DEVICE_I2S_ROLE_SLAVE,
         .ll_wclk_role           = DEVICE_I2S_ROLE_MASTER |
@@ -503,6 +520,7 @@ static int tsb_i2s_config_is_valid(struct device_i2s_configuration
 
     if (!tsb_i2s_one_bit_is_set(configuration->byte_order) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_protocol) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_mclk_role) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_bclk_role) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_wclk_role) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_wclk_polarity) ||
@@ -523,6 +541,7 @@ static int tsb_i2s_config_is_valid(struct device_i2s_configuration
             (config->byte_order & configuration->byte_order) &&
             (config->spatial_locations & configuration->spatial_locations) &&
             (config->ll_protocol & configuration->ll_protocol) &&
+            (config->ll_mclk_role & configuration->ll_mclk_role) &&
             (config->ll_bclk_role & configuration->ll_bclk_role) &&
             (config->ll_wclk_role & configuration->ll_wclk_role) &&
             (configuration->ll_bclk_role ==
@@ -746,22 +765,17 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     /* config->spatial_locations ignored since its defined by ll_protocol */
     /* config->ll_data_offset ignored since its defined by ll_protocol */
 
-    /*
-     * The master clock (MCLK) may use an internal or external source.
-     * When internal, it uses output from the PLL; when external, it
-     * uses the I2S_MCLK pin.
-     */
-    if (info->mclk_role != TSB_I2S_CLK_ROLE_MASTER)
+    if (config->ll_mclk_role == DEVICE_I2S_ROLE_SLAVE)
         i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_MASTER_CLOCK_SEL;
 
     /*
-     * BCLK/SCLK and WCLK/LRCLK may be masters or slaves.  When masters,
-     * they use either the external MCLK or the output from the PLL
-     * (specified by info->mclk_role); when slaves, they use the signal
-     * on the I2S_ABCKI and I2S_ALRCKI pins.  This is specified in the
-     * configuration data and both BCLK and WCLK roles must be the same
-     * (verified in tsb_i2s_config_is_valid()).
+     * When MCLK is slave, its frequency may be specified in the config
+     * data but if it is zero, then the value from the driver's init_data
+     * is used.
      */
+    if (!config->ll_mclk_slave_frequency)
+        config->ll_mclk_slave_frequency = info->mclk_slave_freq;
+
     if (config->ll_bclk_role == DEVICE_I2S_ROLE_SLAVE)
         i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_LR_BCLK_SEL;
 
@@ -800,7 +814,7 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
         return -EINVAL; /* config already checked so should never happen */
     }
 
-    if (info->mclk_role == TSB_I2S_CLK_ROLE_MASTER) {
+    if (config->ll_mclk_role == DEVICE_I2S_ROLE_MASTER) {
         switch (config->sample_frequency) {
         case 192000:
             break;
@@ -827,8 +841,8 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
             return -EINVAL; /* config already checked so should never happen */
         }
     } else {
-        if (info->slave_mclk_freq) {
-            uint32_t sample_freq, bits_per_chan, channels, f, mclk_freq;
+        if (config->ll_mclk_slave_frequency) {
+            uint32_t sample_freq, bits_per_chan, channels, f, bclk_freq;
 
             sample_freq = config->sample_frequency;
             bits_per_chan = (config->bytes_per_channel <= 2) ? 16 : 32;
@@ -848,11 +862,11 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
             }
 
             f = sample_freq * bits_per_chan * channels;
-            mclk_freq = info->slave_mclk_freq / 4;
+            bclk_freq = config->ll_mclk_slave_frequency / 4;
 
-            if (f == (mclk_freq / 2))
+            if (f == (bclk_freq / 2))
                 i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
-            else if (f != mclk_freq)
+            else if (f != bclk_freq)
                 return -EINVAL;
         } else {
             return -EINVAL;
@@ -875,7 +889,7 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     tsb_i2s_write(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_MODESET, modeset);
     tsb_i2s_write(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_MODESET, modeset);
 
-    if (info->mclk_role == TSB_I2S_CLK_ROLE_MASTER)
+    if (config->ll_mclk_role == DEVICE_I2S_ROLE_MASTER)
         tsb_i2s_config_plla(info, 48000 /* XXX */);
 
     /* This write starts mclk & bclk if they are clock masters */
@@ -1891,9 +1905,7 @@ lldbg("LL i2s info struct: 0x%08p\n", info); /* XXX */
 
     tsb_clr_pinshare(TSB_PIN_ETM);
 
-    info->mclk_role = TSB_I2S_CLK_ROLE_SLAVE; /* XXX */
-
-    info->slave_mclk_freq = init_data->slave_mclk_freq;
+    info->mclk_slave_freq = init_data->mclk_slave_freq;
 
     info->dev = dev;
     dev->private = info;
