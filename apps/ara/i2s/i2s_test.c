@@ -53,7 +53,7 @@
 #define SIGTERM     15
 #endif
 
-#undef I2S_TEST_CHECK_RX_DATA
+#define I2S_TEST_CHECK_RX_DATA
 
 #define SAMPLES_PER_ENTRY   100
 
@@ -255,16 +255,29 @@ static void i2s_rx_check_data(struct ring_buf *rb)
 {
     struct i2s_sample *sample;
     unsigned int i;
+    static uint32_t left, right;
+    static uint8_t first_time = 1;
 
     sample = ring_buf_get_head(rb);
 
     for (i = 0; i < (ring_buf_len(rb) / sizeof(*sample)); i++) {
-        if ((sample[i].left || sample[i].right) &&
-            ((sample[i].left != 0xdead) || (sample[i].right != 0xbeef))) {
-
+        if (first_time) {
+            left = sample[i].left;
+            right = sample[i].right;
+            first_time = 0;
+        } else if ((sample[i].left != left) || (sample[i].right != right)) {
             i2s_test_stats.rx_bad_data_cnt++;
-            lldbg("*** BAD DATA 0x%04x%04x***\n",
-                  sample[i].left, sample[i].right);
+
+            left = sample[i].left;
+            right = sample[i].right;
+
+            lldbg("Bad Data received: 0x%04x 0x%04x, expected: 0x%04x 0x%04x\n",
+                  sample[i].left, sample[i].right, left, right);
+        }
+
+        if (++right >= SAMPLES_PER_ENTRY) {
+            right = 0;
+            left++;
         }
     }
 }
