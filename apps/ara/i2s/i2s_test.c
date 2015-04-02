@@ -61,13 +61,22 @@
 #define RB_HEADROOM         0
 #define RB_TAILROOM         0
 
-static struct {
+struct i2s_test_stats {
     unsigned int    tx_cnt;
     unsigned int    tx_err_cnt;
     unsigned int    rx_cnt;
     unsigned int    rx_err_cnt;
     unsigned int    rx_bad_data_cnt;
-} i2s_test_stats;
+};
+
+struct i2s_test_info {
+    uint8_t                 is_master;
+    uint8_t                 is_transmitter;
+    uint8_t                 is_i2s;
+    uint16_t                left;
+    uint16_t                right;
+    struct i2s_test_stats   stats;
+};
 
 static sem_t    done_sem;
 
@@ -87,17 +96,12 @@ static void print_usage(char *argv[])
     printf("\t-l    use LR Stereo protocol\n");
 }
 
-static int parse_cmdline(int argc, char *argv[], unsigned char *is_master,
-                         unsigned char *is_transmitter, unsigned char *is_i2s)
+static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
 {
     int mcnt, scnt, rcnt, tcnt, icnt, lcnt, errcnt;
     int option;
 
     mcnt = scnt = rcnt = tcnt = icnt = lcnt = errcnt = 0;
-
-    *is_master = 0;
-    *is_transmitter = 0;
-    *is_i2s = 0;
 
     if (argc != 4)
         return -EINVAL;
@@ -105,27 +109,27 @@ static int parse_cmdline(int argc, char *argv[], unsigned char *is_master,
     while ((option = getopt(argc, argv, "msrtil")) != ERROR) {
         switch(option) {
         case 'm':
-            *is_master = 1;
+            info->is_master = 1;
             mcnt++;
             break;
         case 's':
-            *is_master = 0;
+            info->is_master = 0;
             scnt++;
             break;
         case 'r':
-            *is_transmitter = 0;
+            info->is_transmitter = 0;
             rcnt++;
             break;
         case 't':
-            *is_transmitter = 1;
+            info->is_transmitter = 1;
             tcnt++;
             break;
         case 'i':
-            *is_i2s = 1;
+            info->is_i2s = 1;
             icnt++;
             break;
         case 'l':
-            *is_i2s = 0;
+            info->is_i2s = 0;
             lcnt++;
             break;
         default:
@@ -144,22 +148,23 @@ static int parse_cmdline(int argc, char *argv[], unsigned char *is_master,
 
 static int rb_fill_and_pass(struct ring_buf *rb, void *arg)
 {
+    struct i2s_test_info *info = arg;
     struct i2s_sample *sample;
     unsigned int i;
-    static unsigned int cnt = 0;
+    uint16_t right = 0;
 
     ring_buf_reset(rb);
     sample = ring_buf_get_tail(rb);
 
     for (i = 0; i < (ring_buf_space(rb) / sizeof(*sample)); i++) {
-        sample[i].left = cnt & 0x0000ffff;
-        sample[i].right = i & 0x0000ffff;
+        sample[i].left = info->left;
+        sample[i].right = right++;
     }
 
     ring_buf_put(rb, i * sizeof(*sample));
     ring_buf_pass(rb);
 
-    cnt++;
+    info->left++;
 
     return 0;
 }
@@ -167,16 +172,18 @@ static int rb_fill_and_pass(struct ring_buf *rb, void *arg)
 static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
                             void *arg)
 {
+    struct i2s_test_info *info = arg;
+
     if (event != DEVICE_I2S_EVENT_TX_COMPLETE)
-        i2s_test_stats.tx_err_cnt++;
+        info->stats.tx_err_cnt++;
 
     /* Don't use printf since its called from irq context */
     switch (event) {
     case DEVICE_I2S_EVENT_TX_COMPLETE:
-        i2s_test_stats.tx_cnt++;
+        info->stats.tx_cnt++;
 
         if (ring_buf_is_producers(rb))
-            rb_fill_and_pass(rb, NULL);
+            rb_fill_and_pass(rb, arg);
 
         return;
     case DEVICE_I2S_EVENT_UNDERRUN:
@@ -201,7 +208,7 @@ static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
     sem_post(&done_sem);
 }
 
-static int start_transmitter(struct device *dev)
+static int start_transmitter(struct i2s_test_info *info, struct device *dev)
 {
     struct ring_buf *rb;
     int ret;
@@ -209,13 +216,13 @@ static int start_transmitter(struct device *dev)
     /* 16-bit stereo */
     rb = ring_buf_alloc_ring(RB_ENTRIES, RB_HEADROOM,
                                  SAMPLES_PER_ENTRY * sizeof(struct i2s_sample),
-                                 RB_TAILROOM, rb_fill_and_pass, NULL, NULL);
+                                 RB_TAILROOM, rb_fill_and_pass, NULL, info);
     if (!rb) {
         fprintf(stderr, "ring_buf_alloc_ring failed\n");
         return -EIO;
     }
 
-    ret = device_i2s_prepare_transmitter(dev, rb, i2s_tx_callback, NULL);
+    ret = device_i2s_prepare_transmitter(dev, rb, i2s_tx_callback, info);
     if (ret) {
         fprintf(stderr, "prepare_tx failed\n");
         goto err_free_ring;
@@ -251,33 +258,36 @@ static void stop_transmitter(struct device *dev)
 }
 
 #ifdef I2S_TEST_CHECK_RX_DATA
-static void i2s_rx_check_data(struct ring_buf *rb)
+static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
 {
     struct i2s_sample *sample;
     unsigned int i;
-    static uint32_t left, right;
     static uint8_t first_time = 1;
 
     sample = ring_buf_get_head(rb);
 
     for (i = 0; i < (ring_buf_len(rb) / sizeof(*sample)); i++) {
         if (first_time) {
-            left = sample[i].left;
-            right = sample[i].right;
+            info->left = sample[i].left;
+            info->right = sample[i].right;
             first_time = 0;
-        } else if ((sample[i].left != left) || (sample[i].right != right)) {
-            i2s_test_stats.rx_bad_data_cnt++;
-
-            left = sample[i].left;
-            right = sample[i].right;
-
-            lldbg("Bad Data received: 0x%04x 0x%04x, expected: 0x%04x 0x%04x\n",
-                  sample[i].left, sample[i].right, left, right);
         }
 
-        if (++right >= SAMPLES_PER_ENTRY) {
-            right = 0;
-            left++;
+        if ((sample[i].left != info->left) ||
+            (sample[i].right != info->right)) {
+
+            info->stats.rx_bad_data_cnt++;
+
+            lldbg("Bad Data received: 0x%04x 0x%04x, expected: 0x%04x 0x%04x\n",
+                  sample[i].left, sample[i].right, info->left, info->right);
+
+            info->left = sample[i].left;
+            info->right = sample[i].right;
+        }
+
+        if (++info->right >= SAMPLES_PER_ENTRY) {
+            info->left++;
+            info->right = 0;
         }
     }
 }
@@ -287,16 +297,18 @@ static void i2s_rx_callback(struct ring_buf *rb,
                                enum device_i2s_event event,
                                void *arg)
 {
+    struct i2s_test_info *info = arg;
+
     if (event != DEVICE_I2S_EVENT_RX_COMPLETE)
-        i2s_test_stats.rx_err_cnt++;
+        info->stats.rx_err_cnt++;
 
     /* Don't use printf since its called from irq context */
     switch (event) {
     case DEVICE_I2S_EVENT_RX_COMPLETE:
-        i2s_test_stats.rx_cnt++;
+        info->stats.rx_cnt++;
 
 #ifdef I2S_TEST_CHECK_RX_DATA
-        i2s_rx_check_data(rb);
+        i2s_rx_check_data(info, rb);
 #endif
         if (ring_buf_is_consumers(rb)) {
             ring_buf_reset(rb);
@@ -326,7 +338,7 @@ static void i2s_rx_callback(struct ring_buf *rb,
     sem_post(&done_sem);
 }
 
-static int start_receiver(struct device *dev)
+static int start_receiver(struct i2s_test_info *info, struct device *dev)
 {
     struct ring_buf *rb;
     int ret;
@@ -340,7 +352,7 @@ static int start_receiver(struct device *dev)
         return -EIO;
     }
 
-    ret = device_i2s_prepare_receiver(dev, rb, i2s_rx_callback, NULL);
+    ret = device_i2s_prepare_receiver(dev, rb, i2s_rx_callback, info);
     if (ret) {
         fprintf(stderr, "prepare_rx failed\n");
         goto err_free_ring;
@@ -375,9 +387,7 @@ static void stop_receiver(struct device *dev)
         fprintf(stderr, "shutdown_rx failed\n");
 }
 
-static int start_streaming(unsigned char is_master,
-                           unsigned char is_transmitter,
-                           unsigned char is_i2s)
+static int start_streaming(struct i2s_test_info *info)
 {
     struct device *dev;
     uint16_t config_count;
@@ -407,18 +417,19 @@ static int start_streaming(unsigned char is_master,
             (cfg->spatial_locations ==
                  (DEVICE_I2S_SPATIAL_LOCATION_FL |
                   DEVICE_I2S_SPATIAL_LOCATION_FR)) &&
-            ((is_i2s && (cfg->ll_protocol & DEVICE_I2S_PROTOCOL_I2S)) ||
-             (!is_i2s && (cfg->ll_protocol & DEVICE_I2S_PROTOCOL_LR_STEREO))) &&
-            ((is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_MASTER) &&
+            ((info->is_i2s && (cfg->ll_protocol & DEVICE_I2S_PROTOCOL_I2S)) ||
+             (!info->is_i2s && (cfg->ll_protocol &
+                                DEVICE_I2S_PROTOCOL_LR_STEREO))) &&
+            ((info->is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_MASTER) &&
               (cfg->ll_wclk_role & DEVICE_I2S_ROLE_MASTER)) ||
-             (!is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_SLAVE) &&
+             (!info->is_master && (cfg->ll_bclk_role & DEVICE_I2S_ROLE_SLAVE) &&
               (cfg->ll_wclk_role & DEVICE_I2S_ROLE_SLAVE))) &&
             (cfg->ll_wclk_polarity & DEVICE_I2S_POLARITY_NORMAL) &&
             (cfg->ll_wclk_change_edge & DEVICE_I2S_EDGE_FALLING) &&
             (cfg->ll_wclk_tx_edge & DEVICE_I2S_EDGE_FALLING) &&
             (cfg->ll_wclk_rx_edge & DEVICE_I2S_EDGE_RISING) &&
-            ((is_i2s && (cfg->ll_data_offset == 1)) ||
-             (!is_i2s && (cfg->ll_data_offset == 0)))) {
+            ((info->is_i2s && (cfg->ll_data_offset == 1)) ||
+             (!info->is_i2s && (cfg->ll_data_offset == 0)))) {
 
             break;
         }
@@ -434,12 +445,12 @@ static int start_streaming(unsigned char is_master,
 
     config.byte_order = DEVICE_I2S_BYTE_ORDER_LE;
 
-    if (is_i2s)
+    if (info->is_i2s)
         config.ll_protocol = DEVICE_I2S_PROTOCOL_I2S;
     else
         config.ll_protocol = DEVICE_I2S_PROTOCOL_LR_STEREO;
 
-    if (is_master) {
+    if (info->is_master) {
         config.ll_mclk_role = DEVICE_I2S_ROLE_MASTER;
         config.ll_bclk_role = DEVICE_I2S_ROLE_MASTER;
         config.ll_wclk_role = DEVICE_I2S_ROLE_MASTER;
@@ -450,7 +461,7 @@ static int start_streaming(unsigned char is_master,
         config.ll_wclk_role = DEVICE_I2S_ROLE_SLAVE;
     }
 
-    if (is_transmitter)
+    if (info->is_transmitter)
         config.ll_wclk_change_edge = DEVICE_I2S_EDGE_RISING;
     else
         config.ll_wclk_change_edge = DEVICE_I2S_EDGE_FALLING;
@@ -465,10 +476,10 @@ static int start_streaming(unsigned char is_master,
         goto err_dev_close;
     }
 
-    if (is_transmitter)
-        ret = start_transmitter(dev);
+    if (info->is_transmitter)
+        ret = start_transmitter(info, dev);
     else
-        ret = start_receiver(dev);
+        ret = start_receiver(info, dev);
 
     if (ret)
         goto err_dev_close;
@@ -479,7 +490,7 @@ static int start_streaming(unsigned char is_master,
      */
     while (sem_wait(&done_sem) && (errno == EINTR));
 
-    if (is_transmitter)
+    if (info->is_transmitter)
         stop_transmitter(dev);
     else
         stop_receiver(dev);
@@ -506,17 +517,23 @@ int main(int argc, FAR char *argv[])
 int i2s_test_main(int argc, char *argv[])
 #endif
 {
-    unsigned char is_master, is_transmitter, is_i2s;
     struct sigaction sig_act;
+    struct i2s_test_info *info;
     int ret;
 
-    ret = parse_cmdline(argc, argv, &is_master, &is_transmitter, &is_i2s);
+    info = zalloc(sizeof(*info));
+    if (!info) {
+        fprintf(stderr, "Can't alloc 'info'\n");
+        return 1;
+    }
+
+    printf("info struct address: 0x%08x\n", info);
+
+    ret = parse_cmdline(argc, argv, info);
     if (ret) {
         print_usage(argv);
         return 1;
     }
-
-    memset(&i2s_test_stats, 0, sizeof(i2s_test_stats));
 
     sem_init(&done_sem, 0, 0);
 
@@ -537,9 +554,11 @@ int i2s_test_main(int argc, char *argv[])
         return 1;
     }
 
-    ret = start_streaming(is_master, is_transmitter, is_i2s);
+    ret = start_streaming(info);
     if (ret)
         return 1;
+
+    free(info);
 
     return 0;
 }
