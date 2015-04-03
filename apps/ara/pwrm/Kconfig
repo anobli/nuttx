@@ -1,0 +1,26 @@
+#
+# For a description of the syntax of this configuration file,
+# see misc/tools/kconfig-language.txt.
+#
+# Copyright (C) 2015 Google, Inc.
+# Google Confidential/Restricted
+#
+
+config ARA_PWRM_MAIN
+	bool "Ara BDB Power Measurement SVC Application"
+	default n
+	depends on ARCH_BOARD_ARA_SVC
+	---help---
+		Enable the Ara SVC Power Measurement Application
+
+if ARA_PWRM_MAIN
+
+config ARA_PWRM_MAIN_PROGNAME
+	string "Ara SVC Power Measurement Application"
+	default "pwrm"
+	depends on BUILD_KERNEL
+	---help---
+		This is the name of the program that will be use when the NSH ELF
+		program is installed.
+
+endif
