@@ -176,9 +176,9 @@ void up_irqinitialize(void) {
     }
 
     /* Set nvic interrupts and exceptions to midpoint priority */
-    putreg32(DEFPRIORITY32, NVIC_SYSH4_7_PRIORITY);
-    putreg32(DEFPRIORITY32, NVIC_SYSH8_11_PRIORITY);
-    putreg32(DEFPRIORITY32, NVIC_SYSH12_15_PRIORITY);
+    putreg32(0xFFFFFFFF, NVIC_SYSH4_7_PRIORITY);
+    putreg32(0xFFFFFFFF, NVIC_SYSH8_11_PRIORITY);
+    putreg32(0xFFFFFFFF, NVIC_SYSH12_15_PRIORITY);
 
     /* Now set all of the peripheral interrupt lines to the default priority */
     num_priority_registers = (getreg32(NVIC_ICTR) + 1) * 8;
@@ -199,6 +199,11 @@ void up_irqinitialize(void) {
      */
     irq_attach(TSB_IRQ_SVCALL, up_svcall);
     irq_attach(TSB_IRQ_HARDFAULT, up_hardfault);
+
+    reg = NVIC_IRQ0_3_PRIORITY;
+    reg += (94);
+    reg &= 0xFFFFFFFC;
+    putreg32(0, reg);
 
     irqenable();
 }

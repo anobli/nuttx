@@ -8,6 +8,7 @@ config ARA_BRIDGE_PWM
 	default n if !DEBUG
 	default y if DEBUG
 	depends on ARCH_CHIP_TSB
+	depends on PWM
 	select PWM
 	---help---
 		Enable the Ara PWM program.  Controls and tests PWM0 and PWM1.

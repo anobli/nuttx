@@ -1,5 +1,5 @@
-#ifndef __CONFIGS_ENDO_INCLUDE_BOARD_H
-#define  __CONFIGS_ENDO_INCLUDE_BOARD_H
+#ifndef __CONFIGS_BDB_INCLUDE_BOARD_H
+#define  __CONFIGS_BDB_INCLUDE_BOARD_H
 
 #include <nuttx/config.h>
 #ifndef __ASSEMBLY__

@@ -38,7 +38,7 @@
 #include <string.h>
 
 #include <nuttx/util.h>
-
+#include <unipro/connection.h>
 #include "stm32.h"
 #include "up_debug.h"
 #include "tsb_switch.h"
@@ -307,51 +307,160 @@ int switch_irq_handler(struct tsb_switch *sw) {
 }
 
 static int switch_cport_connect(struct tsb_switch *sw,
-                                uint8_t port_id,
-                                uint8_t cport_id,
-                                uint8_t peer_port_id,
-                                uint8_t peer_cport_id,
-                                uint8_t tc,
-                                uint8_t flags) {
+                                struct unipro_connection *c) {
+
 
     int rc = 0;
-    uint8_t peer_dev_id = dev_ids_port_to_dev(sw, peer_port_id);
 
-    if (peer_dev_id == INVALID_PORT) {
-        dbg_error("%s: no device for port ID %d, aborting\n",
-                  __func__, peer_port_id);
-        return -EINVAL;
-    }
+    /*
+     * Follow MIPI Specification for UniPro Version 1.6: Section 8.11.1 for setting
+     * up a connection, plus guidelines from Toshiba bridge manual.
+     */
 
     /* Disable connection */
-    rc = switch_dme_peer_set(sw, port_id, T_CONNECTIONSTATE, cport_id, 0x0);
+    rc = switch_dme_peer_set(sw, c->port_id0, T_CONNECTIONSTATE, c->cport_id0, 0x0);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_CONNECTIONSTATE, c->cport_id1, 0x0);
     if (rc) {
         return rc;
     }
 
-    switch_dme_peer_set(sw, port_id, T_CPORTFLAGS, cport_id, flags);
+    /*
+     * The T_PeerDeviceID Attribute of each CPort shall be set to the
+     * N_DeviceID of the peer CPort.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_PEERDEVICEID, c->cport_id0, c->device_id1);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_PEERDEVICEID, c->cport_id1, c->device_id0);
     if (rc) {
         return rc;
     }
 
-    switch_dme_peer_set(sw, port_id, T_TRAFFICCLASS, cport_id, tc);
+    /*
+     * The T_PeerCPortID Attribute of each CPort shall be set to the CPortId of
+     * the peer CPort.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_PEERCPORTID, c->cport_id0, c->cport_id1);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_PEERCPORTID, c->cport_id1, c->cport_id0);
     if (rc) {
         return rc;
     }
 
-    /* Set peer devid/cportid for this cport */
-    switch_dme_peer_set(sw, port_id, T_PEERCPORTID, cport_id, peer_cport_id);
+    /*
+     * The T_TrafficClass Attribute shall be set to the same value for both
+     * CPorts.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_TRAFFICCLASS, c->cport_id0, c->tc);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_TRAFFICCLASS, c->cport_id1, c->tc);
     if (rc) {
         return rc;
     }
 
-    switch_dme_peer_set(sw, port_id, T_PEERDEVICEID, cport_id, peer_dev_id);
+    /*
+     * The T_ProtocolID Attribute shall be set to the same value for both
+     * CPorts.
+     *
+     * This is unused for us.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_PROTOCOLID, c->cport_id0, 0);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_PROTOCOLID, c->cport_id1, 0);
     if (rc) {
         return rc;
     }
 
-    /* Enable connection */
-    rc = switch_dme_peer_set(sw, port_id, T_CONNECTIONSTATE, cport_id, 1);
+    /*
+     * TxTokenValue and RxTokenValue
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_TXTOKENVALUE, c->cport_id0, 32);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_TXTOKENVALUE, c->cport_id1, 32);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id0, T_RXTOKENVALUE, c->cport_id0, 32);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_RXTOKENVALUE, c->cport_id1, 32);
+    if (rc) {
+        return rc;
+    }
+
+
+    /*
+     * -The T_CPortFlags.E2EFC shall be set to the same value for both CPorts.
+     * -If E2E FC is enabled (T_CPortFlags.E2EFC = ‘1’), the T_TxTokenValue
+     *  Attribute of each CPortand the T_RxTokenValue Attribute of the peer
+     *  CPort shall be set to the same value.
+     * -The T_CPortMode Attribute for each CPort shall be set to
+     *  CPORT_APPLICATION.
+     * - If E2E FC is enabled (T_CPortFlags.E2EFC = ‘1’) or the E2E FC is
+     *   disabled and CSD is enabled(T_CPortFlags.E2EFC = ‘0’and
+     *   T_CPortFlags.CSD_n = '0'), each of the two CPorts shall set the
+     *   T_PeerBufferSpace Attribute of the local CPort to the same value as
+     *   T_LocalBufferSpace Attribute of the peer CPort. These values represent
+     *   the amount of data that the CPort where T_PeerBufferSpace is set can
+     *   initially transmit, and, hence, its peer CPort can receive.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_CPORTFLAGS, c->cport_id0, c->flags);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_CPORTFLAGS, c->cport_id1, c->flags);
+    if (rc) {
+        return rc;
+    }
+
+    /*
+     * The T_CreditsToSend Attribute for each CPort shall be set to 0.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_CREDITSTOSEND, c->cport_id0, 0);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_CREDITSTOSEND, c->cport_id1, 0);
+    if (rc) {
+        return rc;
+    }
+
+    /*
+     * TSB_MaxSegmentConfig
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, TSB_MAXSEGMENTCONFIG, c->cport_id0, 0x118);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, TSB_MAXSEGMENTCONFIG, c->cport_id1, 0x118);
+    if (rc) {
+        return rc;
+    }
+
+
+    /*
+     * HACK: Wait for bridges to boot and write CONNECTION_READY to SVC
+     * mailbox. We have to wait for this so that we know both bridges have
+     * disabled E2EFC.
+     */
+    rc = switch_dme_peer_set(sw, c->port_id0, T_CONNECTIONSTATE, c->cport_id0, 1);
+    if (rc) {
+        return rc;
+    }
+    rc = switch_dme_peer_set(sw, c->port_id1, T_CONNECTIONSTATE, c->cport_id1, 1);
     if (rc) {
         return rc;
     }
@@ -359,10 +468,17 @@ static int switch_cport_connect(struct tsb_switch *sw,
     return 0;
 }
 
+/*
+ * TODO: fix this
+ */
 static int switch_cport_disconnect(struct tsb_switch *sw,
-                                   uint8_t port_id,
-                                   uint8_t cport_id) {
-    return switch_dme_peer_set(sw, port_id, T_CONNECTIONSTATE, cport_id, 0x0);
+                                   uint8_t port_id1,
+                                   uint8_t cport_id1,
+                                   uint8_t port_id2,
+                                   uint8_t cport_id2) {
+    switch_dme_peer_set(sw, port_id1, T_CONNECTIONSTATE, cport_id1, 0x0);
+    switch_dme_peer_set(sw, port_id1, T_CONNECTIONSTATE, cport_id1, 0x0);
+    return 0;
 }
 
 static int switch_link_power_set_default(struct tsb_switch *sw,
@@ -513,68 +629,63 @@ int switch_setup_routing_table(struct tsb_switch *sw,
  * @brief Create a connection between two cports
  */
 int switch_connection_create(struct tsb_switch *sw,
-                             uint8_t port_id1,
-                             uint8_t cport_id1,
-                             uint8_t port_id2,
-                             uint8_t cport_id2,
-                             uint8_t tc,
-                             uint8_t flags) {
+                             struct unipro_connection *c) {
     int rc;
 
-    dbg_verbose("Creating connection: [%u:%u]<->[%u:%u] TC: %u Flags: %x\n",
-                port_id1,
-                cport_id1,
-                port_id2,
-                cport_id2,
-                tc,
-                flags);
-    rc = switch_cport_connect(sw,
-                              port_id1,
-                              cport_id1,
-                              port_id2,
-                              cport_id2,
-                              tc,
-                              flags);
-    if (rc) {
-        return rc;
+    if (!c) {
+        rc = -EINVAL;
+        goto err0;
     }
 
-    rc = switch_cport_connect(sw,
-                              port_id2,
-                              cport_id2,
-                              port_id1,
-                              cport_id1,
-                              tc,
-                              flags);
+    dbg_info("Creating connection: [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x\n",
+             c->port_id0,
+             c->device_id0,
+             c->cport_id0,
+             c->port_id1,
+             c->device_id1,
+             c->cport_id1,
+             c->tc,
+             c->flags);
+
+
+#if 0
+    rc = switch_link_power_set_default(sw, c->port_id0);
     if (rc) {
         goto err0;
     }
 
-    rc = switch_link_power_set_default(sw, port_id1);
+    rc = switch_link_power_set_default(sw, c->port_id1);
     if (rc) {
-        goto err1;
+        goto err0;
     }
+#endif
 
-    rc = switch_link_power_set_default(sw, port_id2);
+    rc = switch_cport_connect(sw, c);
     if (rc) {
-        goto err1;
+        /*
+         * TODO: fix disconnect
+         */
+        switch_cport_disconnect(sw,
+                                c->port_id0,
+                                c->cport_id0,
+                                c->port_id1,
+                                c->cport_id1);
     }
 
     return 0;
 
-err1:
-    switch_cport_disconnect(sw, port_id2, cport_id2);
 err0:
-    switch_cport_disconnect(sw, port_id1, cport_id1);
-    dbg_verbose("%s: Connection setup failed. [%u:%u]<->[%u:%u] TC: %u Flags: %x rc: %u\n",
-                __func__,
-                port_id1,
-                cport_id1,
-                port_id2,
-                cport_id2,
-                tc,
-                flags,
-                rc);
+    dbg_error("%s: Connection setup failed. [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x rc: %u\n",
+               __func__,
+               c->port_id0,
+               c->device_id0,
+               c->cport_id0,
+               c->port_id1,
+               c->device_id1,
+               c->cport_id1,
+               c->tc,
+               c->flags,
+               rc);
     return rc;
 }
 

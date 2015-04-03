@@ -94,19 +94,49 @@ static int attr_read(int argc, char **argv) {
     return 0;
 }
 
+static int attr_write(int argc, char **argv) {
+    unsigned int attr;
+    unsigned int val;
+    int peer = 0;
+    unsigned int rc;
+    unsigned int selector = 0;
+
+    if (argc < 2) {
+        printf("usage: <attr> <val> <1 for peer, 0 for local> <selector(optional)>\n");
+        exit(1);
+    }
+
+    attr = strtoul(argv[0], NULL, 16);
+    val  = strtoul(argv[1], NULL, 16);
+    peer = strtoul(argv[2], NULL, 10);
+
+    if (argc == 3) {
+        selector = strtoul(argv[3], NULL, 10);
+    }
+
+    unipro_attr_write(attr, val, selector, peer, &rc);
+
+    printf("attr: %x peer: %u selector: %u val: %x resultcode: %x\n", attr, peer, selector, val, rc);
+
+    return 0;
+}
+
+
 int unipro_main(int argc, char **argv) {
     char *op;
     int rc;
-
-    if (argc < 2) {
-        return -1;
-    }
-
     op = argv[1];
 
     if (strcmp(op, "r") == 0) {
         printf("Attribute read:\n");
+        if (argc < 2) {
+            return -1;
+        }
+
         return attr_read(argc - 2, &argv[2]);
+
+    } else if (strcmp(op, "w") == 0) {
+        return attr_write(argc - 2, &argv[2]);
 
     } else if (strcmp(op, "init") == 0) {
         printf("Initializing unipro.\n");
@@ -122,6 +152,13 @@ int unipro_main(int argc, char **argv) {
             printf("Failed to send data. rc: %d\n", rc);
             exit(1);
         }
+    } else if (strcmp(op, "on") == 0) {
+        rc = strtoul(argv[2], NULL, 10);
+        unipro_on(rc);
+        exit(0);
+    } else if (strcmp(op, "off") == 0) {
+        rc = strtoul(argv[2], NULL, 10);
+        unipro_off(rc);
     } else if (strcmp(op, "info") == 0) {
         unipro_info();
     }

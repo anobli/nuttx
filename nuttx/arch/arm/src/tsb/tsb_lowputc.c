@@ -28,7 +28,7 @@ void tsb_lowsetup(void) {
     int i;
 
     /* enable UART RX/TX/RTS/CTS pins */
-    tsb_set_pinshare(TSB_PIN_UART_RXTX | TSB_PIN_UART_CTSRTS);
+    tsb_set_pinshare(TSB_PIN_UART_RXTX);
 
     /* enable UART clocks */
     tsb_clk_enable(TSB_CLK_UARTP);
