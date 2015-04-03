@@ -53,11 +53,7 @@
 
 #define TSB_I2S_DRIVER_NAME                             "tsb i2s driver"
 
-#if 0 /* XXX */
 #define TSB_I2S_TX_START_THRESHOLD                      0x20
-#else /* Buffer up as much as possible before starting to reduce underruns */
-#define TSB_I2S_TX_START_THRESHOLD                      0x3f
-#endif
 
 /* System Controller/Bridge Registers */
 #define TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR                0x0440
@@ -955,7 +951,7 @@ static int tsb_i2s_start_block(struct tsb_i2s_info *info,
         if (!limit)
             return -EIO;
     }
-    
+
     return 0;
 }
 
@@ -1133,9 +1129,7 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
     enum device_i2s_event event = DEVICE_I2S_EVENT_NONE;
     int ret = 0;
 
-    while (ring_buf_is_producers(info->rx_rb) &&
-           !ring_buf_is_full(info->rx_rb)) {
-
+    while (ring_buf_is_producers(info->rx_rb)) {
         if (ring_buf_space(info->rx_rb) % 4) {
             event = DEVICE_I2S_EVENT_DATA_LEN;
             ret = -EINVAL;
@@ -1146,8 +1140,15 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
         if (ret)
             break;
 
-        if (!ring_buf_is_full(info->rx_rb)) /* FIFO must be empty */
-            break;
+        if (!ring_buf_is_full(info->rx_rb)) {
+            /*
+             * The FIFO must be empty so unmask the irq and exit.  When there
+             * is data in the FIFO, the irq handler will call this routine and
+             * the FIFO will be drained again.
+             */
+            tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INT_INT);
+            return 0;
+        }
 
         ring_buf_pass(info->rx_rb);
 
@@ -1163,54 +1164,12 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
 
         if (info->rx_callback)
             info->rx_callback(info->rx_rb, event, info->rx_arg);
-    } else {
-
-
-/* XXX
-XXX when no space in ring buffer for rx data, mask irqs;
-XXX when space appears, unmask irqs;
-*/
-
-
-        tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI,
-                            TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
     }
 
+    /* No room in the ring buffer so mask irq so we're not flooded */
+    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SI, TSB_I2S_REG_INT_INT);
+
     return ret;
-}
-
-static int tsb_i2s_start_receiver(struct tsb_i2s_info *info)
-{
-    int ret;
-
-    tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI,
-                        TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                        TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
-                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-
-    ret = tsb_i2s_start_clocking(info, TSB_I2S_BLOCK_SI);
-    if (ret)
-        return ret;
-
-    info->flags |= TSB_I2S_FLAG_RX_ACTIVE;
-
-    return 0;
-}
-
-static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info, int is_err)
-{
-    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SI, is_err);
-
-    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SI,
-                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
-                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-
-    info->flags &= ~TSB_I2S_FLAG_RX_ACTIVE;
 }
 
 static int tsb_i2s_fill_fifo(struct tsb_i2s_info *info,
@@ -1227,7 +1186,6 @@ static int tsb_i2s_fill_fifo(struct tsb_i2s_info *info,
         intstat = tsb_i2s_read(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_INTSTAT);
 
         if (intstat & TSB_I2S_REG_INT_ERROR_MASK) {
-lldbg("--- fill_fifo: intstat: 0x%x\n", intstat);
             *event = tsb_i2s_intstat2event(intstat);
             ret = -EIO;
             break;
@@ -1262,29 +1220,19 @@ static int tsb_i2s_tx_data(struct tsb_i2s_info *info)
         }
 
         ret = tsb_i2s_fill_fifo(info, &event);
-        if (ret) {
-lldbg("****** ahhh - %d\n", -ret);
-            /* XXX do something here */
+        if (ret)
             break;
-        }
 
-        /*
-         * FIFO must be full so unmask irq and exit.  When there is
-         * room in the FIFO, irq will be asserted and irq handler will call
-         * this routine again to put more data in the FIFO.
-         */
         if (!ring_buf_is_empty(info->tx_rb)) {
+            /*
+             * The FIFO must be full so unmask the irq and exit.  When there
+             * is room in the FIFO, the irq handler will call this routine and
+             * the FIFO will be filled again.
+             */
             tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_INT_INT);
             return 0;
         }
 
-        /*
-         * All the data in the rb was written to the fifo so call the
-         * callback routine.  This means the callback is called once its
-         * data is in the fifo but not necessarily sent on the wire.  This
-         * is intentional in case the callback is what feeds the the driver
-         * the next rb entry.
-         */
         ring_buf_reset(info->tx_rb);
         ring_buf_pass(info->tx_rb);
 
@@ -1302,47 +1250,10 @@ lldbg("****** ahhh - %d\n", -ret);
             info->tx_callback(info->tx_rb, event, info->tx_arg);
     }
 
-    /* XXX fix error handling */
-    /* No more data to send so mask off irq so we're not flooded */
+    /* No more data to send so mask the irq so we're not flooded */
     tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_INT_INT);
 
     return ret;
-}
-
-static int tsb_i2s_start_transmitter(struct tsb_i2s_info *info)
-{
-    int ret;
-
-    if (!tsb_i2s_tx_is_active(info)) {
-        ret = tsb_i2s_start_clocking(info, TSB_I2S_BLOCK_SO);
-        if (ret) {
-lldbg("--- ********** start_clocking failed: %d\n", -ret);
-            return ret;
-        }
-
-        /* TSB_I2S_REG_INT_INT is unmasked in tsb_i2s_tx_data() */
-        tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SO,
-                            TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                            TSB_I2S_REG_INT_OR);
-
-        info->flags |= TSB_I2S_FLAG_TX_ACTIVE;
-    }
-
-    return tsb_i2s_tx_data(info);
-}
-
-static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info, int is_err)
-{
-    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SO, is_err);
-
-    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SO,
-                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO,
-                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
-
-    info->flags &= ~TSB_I2S_FLAG_TX_ACTIVE;
 }
 
 static int tsb_i2s_irq_so_err_handler(int irq, void *context)
@@ -1425,6 +1336,74 @@ static int tsb_i2s_irq_si_handler(int irq, void *context)
         tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, intstat);
 
     return OK;
+}
+
+static int tsb_i2s_start_receiver(struct tsb_i2s_info *info)
+{
+    int ret;
+
+    tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI,
+                        TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                        TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+
+    ret = tsb_i2s_start_clocking(info, TSB_I2S_BLOCK_SI);
+    if (ret)
+        return ret;
+
+    info->flags |= TSB_I2S_FLAG_RX_ACTIVE;
+
+    return 0;
+}
+
+static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info, int is_err)
+{
+    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SI, is_err);
+
+    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SI,
+                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+
+    info->flags &= ~TSB_I2S_FLAG_RX_ACTIVE;
+}
+
+static int tsb_i2s_start_transmitter(struct tsb_i2s_info *info)
+{
+    int ret;
+
+    if (!tsb_i2s_tx_is_active(info)) {
+        ret = tsb_i2s_start_clocking(info, TSB_I2S_BLOCK_SO);
+        if (ret)
+            return ret;
+
+        /* TSB_I2S_REG_INT_INT is unmasked in tsb_i2s_tx_data() */
+        tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SO,
+                            TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                            TSB_I2S_REG_INT_OR);
+
+        info->flags |= TSB_I2S_FLAG_TX_ACTIVE;
+    }
+
+    return tsb_i2s_tx_data(info);
+}
+
+static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info, int is_err)
+{
+    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SO, is_err);
+
+    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SO,
+                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+
+    info->flags &= ~TSB_I2S_FLAG_TX_ACTIVE;
 }
 
 static int tsb_i2s_op_get_processing_delay(struct device *dev,
@@ -1614,7 +1593,6 @@ static int tsb_i2s_op_prepare_transmitter(struct device *dev,
         tsb_i2s_rx_is_prepared(info) ||
         tsb_i2s_tx_is_prepared(info)) {
 
-lldbg("failing: 0x%08x\n", info->flags);
         ret = -EIO;
         goto err_irqrestore;
     }
