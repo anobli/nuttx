@@ -9,6 +9,7 @@
 #include "tsb_scm.h"
 #include "tsb_lowputc.h"
 
+#define DEBUG_EARLY_BOOT 1
 #ifdef DEBUG_EARLY_BOOT
 #define dbg(x) up_lowputc(x)
 #else
@@ -20,9 +21,7 @@ void tsb_start(void);
 extern uint32_t _stext_lma;
 extern uint32_t _sdata_lma;
 
-#ifdef CONFIG_BOOT_COPYTORAM
-void __start(void) __attribute__((section(".text.spi_reloc")));
-#endif
+void __start(void) __attribute__((section(".bootstrap.loader")));
 
 void __start(void) {
 #ifdef CONFIG_BOOT_COPYTORAM
@@ -51,9 +50,6 @@ void tsb_start(void) {
     /* Relocate vector table (eg from bootrom) */
     extern uint32_t _vectors;
     putreg32((uint32_t)&_vectors, NVIC_VECTAB);
-#ifdef CONFIG_ARCH_RAMVECTORS
-    up_ramvec_initialize();
-#endif
 
     /* Configure clocks */
     tsb_clk_init();

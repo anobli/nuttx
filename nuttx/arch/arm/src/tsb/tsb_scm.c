@@ -34,6 +34,7 @@
 #include <stdint.h>
 #include <debug.h>
 #include <nuttx/config.h>
+#include <nuttx/arch.h>
 #include <arch/board/board.h>
 
 #include "up_arch.h"

@@ -48,7 +48,7 @@ done_copy_to_ram:
 .align 4
 _copy_to_ram:
 
-.section .text.spi_reloc
+.section .bootstrap.loader
 .thumb_func
 bootstrap:
     push {r4, lr}
