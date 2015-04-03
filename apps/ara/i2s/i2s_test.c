@@ -530,10 +530,6 @@ static int i2s_test_start_streaming(struct i2s_test_info *info)
     else
         i2s_test_stop_receiver(dev);
 
-    device_close(dev);
-
-    return 0;
-
 err_dev_close:
     device_close(dev);
 
