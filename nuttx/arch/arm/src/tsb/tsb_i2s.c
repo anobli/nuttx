@@ -1459,9 +1459,7 @@ static int tsb_i2s_op_prepare_receiver(struct device *dev,
 
     flags = irqsave();
 
-    if (!tsb_i2s_device_is_configured(info) ||
-        tsb_i2s_rx_is_prepared(info) ||
-        tsb_i2s_tx_is_prepared(info)) {
+    if (!tsb_i2s_device_is_configured(info) || tsb_i2s_rx_is_prepared(info)) {
         ret = -EIO;
         goto err_irqrestore;
     }
@@ -1589,10 +1587,7 @@ static int tsb_i2s_op_prepare_transmitter(struct device *dev,
 
     flags = irqsave();
 
-    if (!tsb_i2s_device_is_configured(info) ||
-        tsb_i2s_rx_is_prepared(info) ||
-        tsb_i2s_tx_is_prepared(info)) {
-
+    if (!tsb_i2s_device_is_configured(info) || tsb_i2s_tx_is_prepared(info)) {
         ret = -EIO;
         goto err_irqrestore;
     }
