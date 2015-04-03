@@ -33,9 +33,8 @@
  *  MCLK    - Master Clock: used to drive the other clocks.
  *  BCLK    - Bit Clock: used for clocking each bit in/out.
  *            Also referred to as SCLK (Serial Clock).
- *  WCLK    - Word Clock: determines which channel audio data is for
- *            (i.e., left or right channel).  Also referred to as
- *            LRCLK (Left-Right Clock).
+ *  LRCLK   - Left/Right Clock: determines which channel audio data is for.
+ *            Also referred to as WCLK (Word Clock).
  */
 
 #include <stddef.h>
@@ -196,13 +195,13 @@ struct tsb_i2s_info {
     uint32_t                        tx_count;
 };
 
-static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info);
-static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info);
+static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info, int is_err);
+static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info, int is_err);
 
 /*
  * Only valid for internally generated MCLK.  Table changes with external MCLK.
  *
- * XXX BCLK & WCLK are either both internal or both external so need
+ * XXX BCLK & LRCLK are either both internal or both external so need
  * separate entries for each set.  IOW, these entries need to be
  * split in two.
  */
@@ -697,11 +696,16 @@ static void tsb_i2s_init_block(struct tsb_i2s_info *info,
                        TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
 }
 
-static void tsb_i2s_mute(struct tsb_i2s_info *info,
-                             enum tsb_i2s_block block, int enable)
+static void tsb_i2s_mute(struct tsb_i2s_info *info, enum tsb_i2s_block block)
 {
     tsb_i2s_write_field(info, block, TSB_I2S_REG_MUTE, TSB_I2S_REG_MUTE_MUTEN,
-                        enable ? 0 : TSB_I2S_REG_MUTE_MUTEN);
+                        0);
+}
+
+static void tsb_i2s_unmute(struct tsb_i2s_info *info, enum tsb_i2s_block block)
+{
+    tsb_i2s_write_field(info, block, TSB_I2S_REG_MUTE, TSB_I2S_REG_MUTE_MUTEN,
+                        TSB_I2S_REG_MUTE_MUTEN);
 }
 
 static int tsb_i2s_config_is_valid(
@@ -863,8 +867,8 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     tsb_i2s_init_block(info, TSB_I2S_BLOCK_SO);
     tsb_i2s_init_block(info, TSB_I2S_BLOCK_SI);
 
-    tsb_i2s_mute(info, TSB_I2S_BLOCK_SO, 1);
-    tsb_i2s_mute(info, TSB_I2S_BLOCK_SI, 1);
+    tsb_i2s_mute(info, TSB_I2S_BLOCK_SO);
+    tsb_i2s_mute(info, TSB_I2S_BLOCK_SI);
 
     tsb_i2s_write(info, TSB_I2S_BLOCK_SC, TSB_I2S_REG_AUDIOSET, sc_audioset);
     tsb_i2s_write(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_AUDIOSET,
@@ -879,7 +883,7 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     if (config->ll_mclk_role == DEVICE_I2S_ROLE_MASTER)
         tsb_i2s_config_plla(info, 48000 /* XXX */);
 
-    /* This write starts mclk & bclk if they are clock masters */
+    /* This write starts MCLK & BCLK (not LRCLK) if they are clock masters */
     tsb_i2s_write_field(info, TSB_I2S_BLOCK_BRIDGE,
                         TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR,
                         TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_MASK, i2s_clk_sel);
@@ -915,83 +919,89 @@ static void tsb_i2s_disable(struct tsb_i2s_info *info)
     info->flags &= ~TSB_I2S_FLAG_ENABLED;
 }
 
-static int tsb_i2s_block_is_busy(struct tsb_i2s_info *info,
-                                 enum tsb_i2s_block block)
-{
-    uint32_t busy_bit;
-
-    switch (block) {
-    case TSB_I2S_BLOCK_SC:
-        busy_bit = TSB_I2S_REG_BUSY_BUSY;
-        break;
-    case TSB_I2S_BLOCK_SO:
-    case TSB_I2S_BLOCK_SI:
-        busy_bit = TSB_I2S_REG_BUSY_SPK_MIC_BUSY;
-        break;
-    default:
-        lldbg("Bogus block: %d\n", block);
-        return 0;
-    }
-
-    return !!(tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) & busy_bit);
-}
-
 static int tsb_i2s_start_block(struct tsb_i2s_info *info,
                                enum tsb_i2s_block block)
 {
-    uint32_t mask = TSB_I2S_REG_START_START;
     unsigned int limit;
+    uint32_t v;
 
-    if (tsb_i2s_block_is_busy(info, block))
-        return 0;
+    /*
+     * When writing to the SC blcok, the following write starts LRCLK
+     * (MCLK & BCLK already started in tsb_i2s_config_hw().
+     */
+    tsb_i2s_write(info, block, TSB_I2S_REG_START, TSB_I2S_REG_START_START);
 
-    if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
-        tsb_i2s_mute(info, block, 0);
-
-        mask |= TSB_I2S_REG_START_SPK_MIC_START;
-    }
-
-    tsb_i2s_write(info, block, TSB_I2S_REG_START, mask);
-
-    for (limit = 1000; !tsb_i2s_block_is_busy(info, block) && --limit; );
+    limit = 1000;
+    do {
+         v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
+         v &= TSB_I2S_REG_START_START;
+    } while (v && --limit);
 
     if (!limit)
         return -EIO;
 
+    if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
+        tsb_i2s_unmute(info, block);
+
+        tsb_i2s_write(info, block, TSB_I2S_REG_START,
+                      TSB_I2S_REG_START_SPK_MIC_START);
+
+        limit = 1000;
+        do {
+             v = tsb_i2s_read(info, block, TSB_I2S_REG_START);
+             v &= TSB_I2S_REG_START_SPK_MIC_START;
+        } while (v && --limit);
+
+        if (!limit)
+            return -EIO;
+    }
+    
     return 0;
 }
 
 static int tsb_i2s_stop_block(struct tsb_i2s_info *info,
-                              enum tsb_i2s_block block)
+                              enum tsb_i2s_block block, int is_err)
 {
     unsigned int limit;
+    uint32_t v, ok_val, mask;
 
     if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
-        for (limit = 1000;
-             (tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) &
-                                            TSB_I2S_REG_BUSY_ERRBUSY) &&
-              --limit; );
+        if (is_err) {
+            mask = TSB_I2S_REG_BUSY_ERRBUSY;
+            ok_val = 0;
+        } else {
+            mask = TSB_I2S_REG_BUSY_SPK_MIC_BUSY;
+            ok_val = TSB_I2S_REG_BUSY_SPK_MIC_BUSY;
+        }
+
+        limit = 1000;
+        do {
+             v = tsb_i2s_read(info, block, TSB_I2S_REG_BUSY);
+             v &= mask;
+        } while ((v != ok_val) && --limit);
 
         if (!limit)
             return -EIO;
 
-        tsb_i2s_mute(info, block, 1);
+        tsb_i2s_mute(info, block);
 
-        for (limit = 1000;
-             (tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) &
-                                            TSB_I2S_REG_BUSY_SERIBUSY) &&
-              --limit; );
+        limit = 1000;
+        do {
+             v = tsb_i2s_read(info, block, TSB_I2S_REG_BUSY);
+             v &= TSB_I2S_REG_BUSY_SERIBUSY;
+        } while (v && --limit);
 
         if (!limit)
             return -EIO;
     }
 
-     if (!(tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) & TSB_I2S_REG_BUSY_BUSY))
-         return 0;
-
     tsb_i2s_write(info, block, TSB_I2S_REG_STOP, TSB_I2S_REG_STOP_I2S_STOP);
 
-    for (limit = 1000; tsb_i2s_block_is_busy(info, block) && --limit; );
+    limit = 1000;
+    do {
+         v = tsb_i2s_read(info, block, TSB_I2S_REG_STOP);
+         v &= TSB_I2S_REG_STOP_I2S_STOP;
+    } while (v && --limit);
 
     if (!limit)
         return -EIO;
@@ -1012,18 +1022,18 @@ static int tsb_i2s_start_clocking(struct tsb_i2s_info *info,
 
     ret = tsb_i2s_start_block(info, block);
     if (ret && (info->config.ll_bclk_role == DEVICE_I2S_ROLE_MASTER))
-        tsb_i2s_stop_block(info, TSB_I2S_BLOCK_SC);
+        tsb_i2s_stop_block(info, TSB_I2S_BLOCK_SC, 0);
 
     return ret;
 }
 
 static void tsb_i2s_stop_clocking(struct tsb_i2s_info *info,
-                                  enum tsb_i2s_block block)
+                                  enum tsb_i2s_block block, int is_err)
 {
-    tsb_i2s_stop_block(info, block);
+    tsb_i2s_stop_block(info, block, is_err);
 
     if (info->config.ll_bclk_role == DEVICE_I2S_ROLE_MASTER)
-        tsb_i2s_stop_block(info, TSB_I2S_BLOCK_SC);
+        tsb_i2s_stop_block(info, TSB_I2S_BLOCK_SC, is_err);
 }
 
 static enum device_i2s_event tsb_i2s_intstat2event(uint32_t intstat)
@@ -1149,11 +1159,19 @@ static int tsb_i2s_rx_data(struct tsb_i2s_info *info)
     }
 
     if (ret) {
-        tsb_i2s_stop_receiver(info);
+        tsb_i2s_stop_receiver(info, 1);
 
         if (info->rx_callback)
             info->rx_callback(info->rx_rb, event, info->rx_arg);
     } else {
+
+
+/* XXX
+XXX when no space in ring buffer for rx data, mask irqs;
+XXX when space appears, unmask irqs;
+*/
+
+
         tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SI,
                             TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
     }
@@ -1181,17 +1199,16 @@ static int tsb_i2s_start_receiver(struct tsb_i2s_info *info)
     return 0;
 }
 
-static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info)
+static void tsb_i2s_stop_receiver(struct tsb_i2s_info *info, int is_err)
 {
-    uint32_t mask;
+    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SI, is_err);
 
-    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SI);
-
-    mask = TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-           TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT;
-
-    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SI, mask);
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, mask);
+    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SI,
+                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
 
     info->flags &= ~TSB_I2S_FLAG_RX_ACTIVE;
 }
@@ -1279,7 +1296,7 @@ lldbg("****** ahhh - %d\n", -ret);
     }
 
     if (ret) {
-        tsb_i2s_stop_transmitter(info);
+        tsb_i2s_stop_transmitter(info, 1);
 
         if (info->tx_callback)
             info->tx_callback(info->tx_rb, event, info->tx_arg);
@@ -1303,7 +1320,10 @@ lldbg("--- ********** start_clocking failed: %d\n", -ret);
             return ret;
         }
 
-        tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SO, TSB_I2S_REG_INT_UR);
+        /* TSB_I2S_REG_INT_INT is unmasked in tsb_i2s_tx_data() */
+        tsb_i2s_unmask_irqs(info, TSB_I2S_BLOCK_SO,
+                            TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                            TSB_I2S_REG_INT_OR);
 
         info->flags |= TSB_I2S_FLAG_TX_ACTIVE;
     }
@@ -1311,17 +1331,16 @@ lldbg("--- ********** start_clocking failed: %d\n", -ret);
     return tsb_i2s_tx_data(info);
 }
 
-static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info)
+static void tsb_i2s_stop_transmitter(struct tsb_i2s_info *info, int is_err)
 {
-    uint32_t mask;
+    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SO, is_err);
 
-    tsb_i2s_stop_clocking(info, TSB_I2S_BLOCK_SO);
-
-    mask = TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
-           TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT;
-
-    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SO, mask);
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO, mask);
+    tsb_i2s_mask_irqs(info, TSB_I2S_BLOCK_SO,
+                      TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                      TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
+    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO,
+                       TSB_I2S_REG_INT_LRCK | TSB_I2S_REG_INT_UR |
+                       TSB_I2S_REG_INT_OR | TSB_I2S_REG_INT_INT);
 
     info->flags &= ~TSB_I2S_FLAG_TX_ACTIVE;
 }
@@ -1342,7 +1361,7 @@ static int tsb_i2s_irq_so_err_handler(int irq, void *context)
         return OK;
     }
 
-    tsb_i2s_stop_transmitter(info);
+    tsb_i2s_stop_transmitter(info, 1);
 
     if (info->tx_callback)
         info->tx_callback(info->tx_rb, event, info->tx_arg);
@@ -1361,10 +1380,8 @@ static int tsb_i2s_irq_so_handler(int irq, void *context)
 
     if (intstat & TSB_I2S_REG_INT_INT)
         tsb_i2s_tx_data(info);
-
-#if 0 /* XXX */
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO, intstat);
-#endif
+    else
+        tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SO, intstat);
 
     return OK;
 }
@@ -1385,7 +1402,7 @@ static int tsb_i2s_irq_si_err_handler(int irq, void *context)
         return OK;
     }
 
-    tsb_i2s_stop_receiver(info);
+    tsb_i2s_stop_receiver(info, 1);
 
     if (info->rx_callback)
         info->rx_callback(info->rx_rb, event, info->rx_arg);
@@ -1404,10 +1421,8 @@ static int tsb_i2s_irq_si_handler(int irq, void *context)
 
     if (intstat & TSB_I2S_REG_INT_INT)
         tsb_i2s_rx_data(info);
-
-#if 0 /* XXX */
-    tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, intstat);
-#endif
+    else
+        tsb_i2s_clear_irqs(info, TSB_I2S_BLOCK_SI, intstat);
 
     return OK;
 }
@@ -1534,7 +1549,7 @@ static int tsb_i2s_op_stop_receiver(struct device *dev)
         goto err_irqrestore;
     }
 
-    tsb_i2s_stop_receiver(info);
+    tsb_i2s_stop_receiver(info, 0);
 
 err_irqrestore:
     irqrestore(flags);
@@ -1666,7 +1681,7 @@ static int tsb_i2s_op_stop_transmitter(struct device *dev)
         goto err_irqrestore;
     }
 
-    tsb_i2s_stop_transmitter(info);
+    tsb_i2s_stop_transmitter(info, 0);
 
 err_irqrestore:
     irqrestore(flags);
