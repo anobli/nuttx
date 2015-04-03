@@ -109,8 +109,8 @@ struct device_i2s_configuration {
     uint8_t     ll_wclk_role;
     uint8_t     ll_wclk_polarity;
     uint8_t     ll_wclk_change_edge;
-    uint8_t     ll_wclk_tx_edge;
-    uint8_t     ll_wclk_rx_edge;
+    uint8_t     ll_data_tx_edge;
+    uint8_t     ll_data_rx_edge;
     uint8_t     ll_data_offset;
     uint8_t     ll_pad;
 };

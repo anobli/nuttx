@@ -103,9 +103,9 @@ static const struct device_i2s_configuration tsb_i2s_stub_config_table[] = {
         .ll_wclk_polarity       = DEVICE_I2S_POLARITY_NORMAL,
         .ll_wclk_change_edge    = DEVICE_I2S_EDGE_RISING |
                                   DEVICE_I2S_EDGE_FALLING,
-        .ll_wclk_tx_edge        = DEVICE_I2S_EDGE_RISING |
+        .ll_data_tx_edge        = DEVICE_I2S_EDGE_RISING |
                                   DEVICE_I2S_EDGE_FALLING,
-        .ll_wclk_rx_edge        = DEVICE_I2S_EDGE_RISING |
+        .ll_data_rx_edge        = DEVICE_I2S_EDGE_RISING |
                                   DEVICE_I2S_EDGE_FALLING,
         .ll_data_offset         = 1,
     },
@@ -128,8 +128,8 @@ static int tsb_i2s_stub_config_is_valid(
         !tsb_i2s_one_bit_is_set(configuration->ll_wclk_role) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_wclk_polarity) ||
         !tsb_i2s_one_bit_is_set(configuration->ll_wclk_change_edge) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_tx_edge) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_rx_edge)) {
+        !tsb_i2s_one_bit_is_set(configuration->ll_data_tx_edge) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_data_rx_edge)) {
 
         return 0;
     }
@@ -151,8 +151,8 @@ static int tsb_i2s_stub_config_is_valid(
             (config->ll_wclk_polarity & configuration->ll_wclk_polarity) &&
             (config->ll_wclk_change_edge &
                                      configuration->ll_wclk_change_edge) &&
-            (config->ll_wclk_tx_edge & configuration->ll_wclk_tx_edge) &&
-            (config->ll_wclk_rx_edge & configuration->ll_wclk_rx_edge) &&
+            (config->ll_data_tx_edge & configuration->ll_data_tx_edge) &&
+            (config->ll_data_rx_edge & configuration->ll_data_rx_edge) &&
             (config->ll_data_offset == configuration->ll_data_offset)) {
 
             return 1;

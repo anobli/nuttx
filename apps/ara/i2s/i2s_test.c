@@ -457,8 +457,8 @@ static int start_streaming(struct i2s_test_info *info)
               (cfg->ll_bclk_role & DEVICE_I2S_ROLE_SLAVE))) &&
             (cfg->ll_wclk_polarity & DEVICE_I2S_POLARITY_NORMAL) &&
             (cfg->ll_wclk_change_edge & DEVICE_I2S_EDGE_FALLING) &&
-            (cfg->ll_wclk_tx_edge & DEVICE_I2S_EDGE_FALLING) &&
-            (cfg->ll_wclk_rx_edge & DEVICE_I2S_EDGE_RISING) &&
+            (cfg->ll_data_tx_edge & DEVICE_I2S_EDGE_FALLING) &&
+            (cfg->ll_data_rx_edge & DEVICE_I2S_EDGE_RISING) &&
             ((info->is_i2s && (cfg->ll_data_offset == 1)) ||
              (!info->is_i2s && (cfg->ll_data_offset == 0)))) {
 
@@ -503,8 +503,8 @@ static int start_streaming(struct i2s_test_info *info)
         config.ll_wclk_change_edge = DEVICE_I2S_EDGE_FALLING;
 
     config.ll_wclk_polarity = DEVICE_I2S_POLARITY_NORMAL;
-    config.ll_wclk_tx_edge = DEVICE_I2S_EDGE_FALLING;
-    config.ll_wclk_rx_edge = DEVICE_I2S_EDGE_RISING;
+    config.ll_data_tx_edge = DEVICE_I2S_EDGE_FALLING;
+    config.ll_data_rx_edge = DEVICE_I2S_EDGE_RISING;
 
     ret = device_i2s_set_configuration(dev, &config);
     if (ret) {
