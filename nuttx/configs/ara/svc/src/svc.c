@@ -220,6 +220,7 @@ int svc_init(void) {
     struct tsb_switch *sw;
     int i, rc;
 
+    dbg_set_config(DBG_SVC, DBG_VERBOSE);
     dbg_info("Initializing SVC\n");
 
     // Allocate and zero the sw struct
