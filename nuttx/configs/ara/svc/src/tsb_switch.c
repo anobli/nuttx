@@ -648,6 +648,7 @@ int switch_connection_create(struct tsb_switch *sw,
              c->flags);
 
 
+#if 0
     rc = switch_link_power_set_default(sw, c->port_id0);
     if (rc) {
         goto err0;
@@ -657,6 +658,7 @@ int switch_connection_create(struct tsb_switch *sw,
     if (rc) {
         goto err0;
     }
+#endif
 
     rc = switch_cport_connect(sw, c);
     if (rc) {
