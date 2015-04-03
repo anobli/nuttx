@@ -507,57 +507,10 @@ static const struct device_i2s_configuration tsb_i2s_config_table[] = {
  */
 static struct device *saved_dev;
 
+/* XXX Move to util.h */
 static int tsb_i2s_one_bit_is_set(uint64_t bits)
 {
     return bits && !(bits & (bits - 1));
-}
-
-static int tsb_i2s_config_is_valid(struct device_i2s_configuration
-                                                                 *configuration)
-{
-    const struct device_i2s_configuration *config;
-    unsigned int i;
-
-    if (!tsb_i2s_one_bit_is_set(configuration->byte_order) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_protocol) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_mclk_role) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_bclk_role) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_role) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_polarity) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_change_edge) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_data_tx_edge) ||
-        !tsb_i2s_one_bit_is_set(configuration->ll_data_rx_edge)) {
-
-        return 0;
-    }
-
-    for (i = 0, config = tsb_i2s_config_table;
-         i < ARRAY_SIZE(tsb_i2s_config_table);
-         i++, config++) {
-
-        if ((config->sample_frequency == configuration->sample_frequency) &&
-            (config->num_channels == configuration->num_channels) &&
-            (config->bytes_per_channel == configuration->bytes_per_channel) &&
-            (config->byte_order & configuration->byte_order) &&
-            (config->spatial_locations & configuration->spatial_locations) &&
-            (config->ll_protocol & configuration->ll_protocol) &&
-            (config->ll_mclk_role & configuration->ll_mclk_role) &&
-            (config->ll_bclk_role & configuration->ll_bclk_role) &&
-            (config->ll_wclk_role & configuration->ll_wclk_role) &&
-            (configuration->ll_bclk_role ==
-                             configuration->ll_wclk_role) && /* Must be = */
-            (config->ll_wclk_polarity & configuration->ll_wclk_polarity) &&
-            (config->ll_wclk_change_edge &
-                                     configuration->ll_wclk_change_edge) &&
-            (config->ll_data_tx_edge & configuration->ll_data_tx_edge) &&
-            (config->ll_data_rx_edge & configuration->ll_data_rx_edge) &&
-            (config->ll_data_offset == configuration->ll_data_offset)) {
-
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 /* XXX Put these in a common file somewhere */
@@ -730,8 +683,9 @@ static void tsb_i2s_config_plla(struct tsb_i2s_info *info,
 static void tsb_i2s_init_block(struct tsb_i2s_info *info,
                                enum tsb_i2s_block block)
 {
-    tsb_i2s_write(info, block, TSB_I2S_REG_TX_SSIZE,
-                  TSB_I2S_TX_START_THRESHOLD);
+    if (block == TSB_I2S_BLOCK_SO)
+        tsb_i2s_write(info, block, TSB_I2S_REG_TX_SSIZE,
+                      TSB_I2S_TX_START_THRESHOLD);
 
     tsb_i2s_mask_irqs(info, block,
                       TSB_I2S_REG_INT_DMACMSK | TSB_I2S_REG_INT_LRCK |
@@ -750,6 +704,54 @@ static void tsb_i2s_mute(struct tsb_i2s_info *info,
                         enable ? 0 : TSB_I2S_REG_MUTE_MUTEN);
 }
 
+static int tsb_i2s_config_is_valid(
+                                 struct device_i2s_configuration *configuration)
+{
+    const struct device_i2s_configuration *config;
+    unsigned int i;
+
+    if (!tsb_i2s_one_bit_is_set(configuration->byte_order) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_protocol) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_mclk_role) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_bclk_role) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_role) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_polarity) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_wclk_change_edge) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_data_tx_edge) ||
+        !tsb_i2s_one_bit_is_set(configuration->ll_data_rx_edge)) {
+
+        return 0;
+    }
+
+    for (i = 0, config = tsb_i2s_config_table;
+         i < ARRAY_SIZE(tsb_i2s_config_table);
+         i++, config++) {
+
+        if ((config->sample_frequency == configuration->sample_frequency) &&
+            (config->num_channels == configuration->num_channels) &&
+            (config->bytes_per_channel == configuration->bytes_per_channel) &&
+            (config->byte_order & configuration->byte_order) &&
+            (config->spatial_locations & configuration->spatial_locations) &&
+            (config->ll_protocol & configuration->ll_protocol) &&
+            (config->ll_mclk_role & configuration->ll_mclk_role) &&
+            (config->ll_bclk_role & configuration->ll_bclk_role) &&
+            (config->ll_wclk_role & configuration->ll_wclk_role) &&
+            (configuration->ll_bclk_role ==
+                             configuration->ll_wclk_role) && /* Must be = */
+            (config->ll_wclk_polarity & configuration->ll_wclk_polarity) &&
+            (config->ll_wclk_change_edge &
+                                     configuration->ll_wclk_change_edge) &&
+            (config->ll_data_tx_edge & configuration->ll_data_tx_edge) &&
+            (config->ll_data_rx_edge & configuration->ll_data_rx_edge) &&
+            (config->ll_data_offset == configuration->ll_data_offset)) {
+
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
 {
     struct device_i2s_configuration *config = &info->config;
@@ -765,16 +767,15 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
     /* config->spatial_locations ignored since its defined by ll_protocol */
     /* config->ll_data_offset ignored since its defined by ll_protocol */
 
-    if (config->ll_mclk_role == DEVICE_I2S_ROLE_SLAVE)
-        i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_MASTER_CLOCK_SEL;
-
     /*
      * When MCLK is slave, its frequency may be specified in the config
-     * data but if it is zero, then the value from the driver's init_data
-     * is used.
+     * data or, if it is zero, the value from the driver's init_data is used.
      */
     if (!config->ll_mclk_slave_frequency)
         config->ll_mclk_slave_frequency = info->mclk_slave_freq;
+
+    if (config->ll_mclk_role == DEVICE_I2S_ROLE_SLAVE)
+        i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_MASTER_CLOCK_SEL;
 
     if (config->ll_bclk_role == DEVICE_I2S_ROLE_SLAVE)
         i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_LR_BCLK_SEL;
@@ -840,33 +841,19 @@ static int tsb_i2s_config_hw(struct tsb_i2s_info *info)
         default:
             return -EINVAL; /* config already checked so should never happen */
         }
-    } else {
+    } else { /* MCLK slave */
         if (config->ll_mclk_slave_frequency) {
-            uint32_t sample_freq, bits_per_chan, channels, f, bclk_freq;
+            uint32_t required_freq, bclk_freq;
 
-            sample_freq = config->sample_frequency;
-            bits_per_chan = (config->bytes_per_channel <= 2) ? 16 : 32;
+            required_freq = config->sample_frequency * config->num_channels *
+                            ((config->bytes_per_channel <= 2) ? 16 : 32);
 
-            switch (config->ll_protocol) {
-            case DEVICE_I2S_PROTOCOL_PCM:
-                channels = 1;
-                break;
-            case DEVICE_I2S_PROTOCOL_I2S:
-                channels = 2;
-                break;
-            case DEVICE_I2S_PROTOCOL_LR_STEREO:
-                channels = 2;
-                break;
-            default:
-                channels = 0;
-            }
-
-            f = sample_freq * bits_per_chan * channels;
+            /* I2S Ctlr always divides MCLK by 4 and optionally by 2 again */
             bclk_freq = config->ll_mclk_slave_frequency / 4;
 
-            if (f == (bclk_freq / 2))
+            if ((bclk_freq / 2) == required_freq)
                 i2s_clk_sel |= TSB_CG_BRIDGE_I2S_CLOCK_SELECTOR_DAC16BIT_SEL;
-            else if (f != bclk_freq)
+            else if (bclk_freq != required_freq)
                 return -EINVAL;
         } else {
             return -EINVAL;
@@ -919,6 +906,9 @@ static void tsb_i2s_disable(struct tsb_i2s_info *info)
     if (!tsb_i2s_device_is_enabled(info))
         return;
 
+    tsb_reset(TSB_RST_I2SBIT);
+    tsb_reset(TSB_RST_I2SSYS);
+
     tsb_clk_disable(TSB_CLK_I2SBIT);
     tsb_clk_disable(TSB_CLK_I2SSYS);
 
@@ -928,7 +918,7 @@ static void tsb_i2s_disable(struct tsb_i2s_info *info)
 static int tsb_i2s_block_is_busy(struct tsb_i2s_info *info,
                                  enum tsb_i2s_block block)
 {
-    uint32_t busy_bit, v;
+    uint32_t busy_bit;
 
     switch (block) {
     case TSB_I2S_BLOCK_SC:
@@ -943,12 +933,7 @@ static int tsb_i2s_block_is_busy(struct tsb_i2s_info *info,
         return 0;
     }
 
-    v = tsb_i2s_read(info, block, TSB_I2S_REG_BUSY);
-    if (v & busy_bit) {
-        return 1;
-    }
-
-    return 0;
+    return !!(tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) & busy_bit);
 }
 
 static int tsb_i2s_start_block(struct tsb_i2s_info *info,
@@ -981,8 +966,6 @@ static int tsb_i2s_stop_block(struct tsb_i2s_info *info,
 {
     unsigned int limit;
 
-    /* XXX Look at this closer */
-
     if ((block == TSB_I2S_BLOCK_SO) || (block == TSB_I2S_BLOCK_SI)) {
         for (limit = 1000;
              (tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) &
@@ -1003,8 +986,8 @@ static int tsb_i2s_stop_block(struct tsb_i2s_info *info,
             return -EIO;
     }
 
-    if (!tsb_i2s_block_is_busy(info, block))
-        return 0;
+     if (!(tsb_i2s_read(info, block, TSB_I2S_REG_BUSY) & TSB_I2S_REG_BUSY_BUSY))
+         return 0;
 
     tsb_i2s_write(info, block, TSB_I2S_REG_STOP, TSB_I2S_REG_STOP_I2S_STOP);
 
@@ -1452,11 +1435,11 @@ static int tsb_i2s_op_set_configuration(struct device *dev,
 {
     struct tsb_i2s_info *info = dev->private;
 
-    if (!tsb_i2s_config_is_valid(configuration))
-        return -EINVAL;
-
     if (tsb_i2s_rx_is_prepared(info) || tsb_i2s_tx_is_prepared(info))
         return -EBUSY;
+
+    if (!tsb_i2s_config_is_valid(configuration))
+        return -EINVAL;
 
     memcpy(&info->config, configuration, sizeof(info->config));
 
@@ -1492,10 +1475,8 @@ static int tsb_i2s_op_prepare_receiver(struct device *dev,
     tsb_i2s_enable(info);
 
     ret = tsb_i2s_config_hw(info);
-    if (ret) {
-        ret = -EIO;
+    if (ret)
         goto err_disable;
-    }
 
     info->rx_rb = rx_rb;
     info->rx_callback = callback;
@@ -1511,7 +1492,7 @@ static int tsb_i2s_op_prepare_receiver(struct device *dev,
     return 0;
 
 err_disable:
-    if (!(info->flags & TSB_I2S_FLAG_TX_PREPARED))
+    if (!tsb_i2s_tx_is_prepared(info))
         tsb_i2s_disable(info);
 err_irqrestore:
     irqrestore(flags);
@@ -1588,7 +1569,7 @@ static int tsb_i2s_op_shutdown_receiver(struct device *dev)
 
     info->flags &= ~TSB_I2S_FLAG_RX_PREPARED;
 
-    if (!(info->flags & TSB_I2S_FLAG_TX_PREPARED))
+    if (!tsb_i2s_tx_is_prepared(info))
         tsb_i2s_disable(info);
 
 err_irqrestore:
@@ -1617,6 +1598,8 @@ static int tsb_i2s_op_prepare_transmitter(struct device *dev,
     if (!tsb_i2s_device_is_configured(info) ||
         tsb_i2s_rx_is_prepared(info) ||
         tsb_i2s_tx_is_prepared(info)) {
+
+lldbg("failing: 0x%08x\n", info->flags);
         ret = -EIO;
         goto err_irqrestore;
     }
@@ -1624,10 +1607,8 @@ static int tsb_i2s_op_prepare_transmitter(struct device *dev,
     tsb_i2s_enable(info);
 
     ret = tsb_i2s_config_hw(info);
-    if (ret) {
-        ret = -EIO;
+    if (ret)
         goto err_disable;
-    }
 
     info->tx_rb = tx_rb;
     info->tx_callback = callback;
@@ -1643,7 +1624,7 @@ static int tsb_i2s_op_prepare_transmitter(struct device *dev,
     return 0;
 
 err_disable:
-    if (!(info->flags & TSB_I2S_FLAG_RX_PREPARED))
+    if (!tsb_i2s_rx_is_prepared(info))
         tsb_i2s_disable(info);
 err_irqrestore:
     irqrestore(flags);
@@ -1720,7 +1701,7 @@ static int tsb_i2s_op_shutdown_transmitter(struct device *dev)
 
     info->flags &= ~TSB_I2S_FLAG_TX_PREPARED;
 
-    if (!(info->flags & TSB_I2S_FLAG_RX_PREPARED))
+    if (!tsb_i2s_rx_is_prepared(info))
         tsb_i2s_disable(info);
 
 err_irqrestore:
