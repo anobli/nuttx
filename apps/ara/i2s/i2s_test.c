@@ -74,14 +74,14 @@ struct i2s_test_info {
     struct i2s_test_stats   stats;
 };
 
-static sem_t    done_sem;
+static sem_t i2s_test_done_sem;
 
-struct i2s_sample {
+struct i2s_test_sample {
     uint16_t    left;
     uint16_t    right;
 };
 
-static void print_usage(char *argv[])
+static void i2s_test_print_usage(char *argv[])
 {
     printf("Usage: %s <-M|-m> <-B|-b> <-t|-r> <-i|-l> [-c] "
            "<rb entries> <sample per rb entry>\n", argv[0]);
@@ -96,17 +96,16 @@ static void print_usage(char *argv[])
     printf("\t-c    check receive data (only valid with -r)\n");
 }
 
-static int parse_cmdline(int argc, char *argv[], struct i2s_test_info *info)
+static int i2s_test_parse_cmdline(int argc, char *argv[],
+                                  struct i2s_test_info *info)
 {
     int Mcnt, mcnt, Bcnt, bcnt, tcnt, rcnt, icnt, lcnt, ccnt, errcnt;
     int option;
 
     Mcnt = mcnt = Bcnt = bcnt = tcnt = rcnt = icnt = lcnt = ccnt = errcnt = 0;
 
-    if ((argc != 7) && (argc != 8)) {
-printf("fail 1 - argc: %d\n", argc);
+    if ((argc != 7) && (argc != 8))
         return -EINVAL;
-    }
 
     while ((option = getopt(argc, argv, "MmBbtrilc")) != ERROR) {
         switch(option) {
@@ -149,10 +148,6 @@ printf("fail 1 - argc: %d\n", argc);
 
     if (((Mcnt + mcnt) != 1) || ((Bcnt + bcnt) != 1) || ((tcnt + rcnt) != 1) ||
         ((icnt + lcnt) != 1) || (ccnt && !rcnt) || errcnt) {
-printf("fail 2\n");
-printf("argc: %d, Mcnt: %d, mcnt: %d, Bcnt: %d, bcnt: %d, tcnt: %d, rcnt: %d, "
-        "icnt: %d, lcnt: %d, ccnt: %d, errcnt: %d\n",
-        argc, Mcnt, mcnt, Bcnt, bcnt, tcnt, rcnt, icnt, lcnt, ccnt, errcnt);
 
         return -EINVAL;
     }
@@ -163,7 +158,7 @@ printf("argc: %d, Mcnt: %d, mcnt: %d, Bcnt: %d, bcnt: %d, tcnt: %d, rcnt: %d, "
     return 0;
 }
 
-static void print_cmdline_summary(struct i2s_test_info *info)
+static void i2s_test_print_cmdline_summary(struct i2s_test_info *info)
 {
     printf("\n");
     printf("-> %s %s data as MCLK %s and BCLK/LRCLK %s\n",
@@ -175,10 +170,10 @@ static void print_cmdline_summary(struct i2s_test_info *info)
             info->rb_entries, info->samples_per_rb_entry);
 }
 
-static int rb_fill_and_pass(struct ring_buf *rb, void *arg)
+static int i2s_test_rb_fill_and_pass(struct ring_buf *rb, void *arg)
 {
     struct i2s_test_info *info = arg;
-    struct i2s_sample *sample;
+    struct i2s_test_sample *sample;
     unsigned int i;
     uint16_t right = 0;
 
@@ -198,8 +193,8 @@ static int rb_fill_and_pass(struct ring_buf *rb, void *arg)
     return 0;
 }
 
-static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
-                            void *arg)
+static void i2s_test_tx_callback(struct ring_buf *rb,
+                                 enum device_i2s_event event, void *arg)
 {
     struct i2s_test_info *info = arg;
 
@@ -212,7 +207,7 @@ static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
         info->stats.tx_cnt++;
 
         if (ring_buf_is_producers(rb))
-            rb_fill_and_pass(rb, arg);
+            i2s_test_rb_fill_and_pass(rb, arg);
 
         return;
     case DEVICE_I2S_EVENT_UNDERRUN:
@@ -234,24 +229,26 @@ static void i2s_tx_callback(struct ring_buf *rb, enum device_i2s_event event,
         lldbg("CB EVENT: Unknown\n");
     }
 
-    sem_post(&done_sem);
+    sem_post(&i2s_test_done_sem);
 }
 
-static int start_transmitter(struct i2s_test_info *info, struct device *dev)
+static int i2s_test_start_transmitter(struct i2s_test_info *info,
+                                      struct device *dev)
 {
     struct ring_buf *rb;
     int ret;
 
     /* 16-bit stereo */
     rb = ring_buf_alloc_ring(info->rb_entries, 0,
-                         info->samples_per_rb_entry * sizeof(struct i2s_sample),
-                         0, rb_fill_and_pass, NULL, info);
+                             info->samples_per_rb_entry *
+                                 sizeof(struct i2s_test_sample),
+                             0, i2s_test_rb_fill_and_pass, NULL, info);
     if (!rb) {
         fprintf(stderr, "ring_buf_alloc_ring failed\n");
         return -EIO;
     }
 
-    ret = device_i2s_prepare_transmitter(dev, rb, i2s_tx_callback, info);
+    ret = device_i2s_prepare_transmitter(dev, rb, i2s_test_tx_callback, info);
     if (ret) {
         fprintf(stderr, "prepare_tx failed: %d\n", ret);
         goto err_free_ring;
@@ -273,7 +270,7 @@ err_free_ring:
     return ret;
 }
 
-static void stop_transmitter(struct device *dev)
+static void i2s_test_stop_transmitter(struct device *dev)
 {
     int ret;
 
@@ -286,9 +283,10 @@ static void stop_transmitter(struct device *dev)
         fprintf(stderr, "shutdown_tx failed: %d\n", ret);
 }
 
-static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
+static void i2s_test_rx_check_data(struct i2s_test_info *info,
+                                   struct ring_buf *rb)
 {
-    struct i2s_sample *sample;
+    struct i2s_test_sample *sample;
     unsigned int i;
     static uint8_t first_time = 1;
 
@@ -320,9 +318,8 @@ static void i2s_rx_check_data(struct i2s_test_info *info, struct ring_buf *rb)
     }
 }
 
-static void i2s_rx_callback(struct ring_buf *rb,
-                               enum device_i2s_event event,
-                               void *arg)
+static void i2s_test_rx_callback(struct ring_buf *rb,
+                                 enum device_i2s_event event, void *arg)
 {
     struct i2s_test_info *info = arg;
 
@@ -335,7 +332,7 @@ static void i2s_rx_callback(struct ring_buf *rb,
         info->stats.rx_cnt++;
 
         if (info->check_rx_data)
-            i2s_rx_check_data(info, rb);
+            i2s_test_rx_check_data(info, rb);
 
         if (ring_buf_is_consumers(rb)) {
             ring_buf_reset(rb);
@@ -362,24 +359,26 @@ static void i2s_rx_callback(struct ring_buf *rb,
         lldbg("CB EVENT: Unknown\n");
     }
 
-    sem_post(&done_sem);
+    sem_post(&i2s_test_done_sem);
 }
 
-static int start_receiver(struct i2s_test_info *info, struct device *dev)
+static int i2s_test_start_receiver(struct i2s_test_info *info,
+                                   struct device *dev)
 {
     struct ring_buf *rb;
     int ret;
 
     /* 16-bit stereo */
     rb = ring_buf_alloc_ring(info->rb_entries, 0,
-                         info->samples_per_rb_entry * sizeof(struct i2s_sample),
-                         0, NULL, NULL, NULL);
+                             info->samples_per_rb_entry *
+                                 sizeof(struct i2s_test_sample),
+                             0, NULL, NULL, NULL);
     if (!rb) {
         fprintf(stderr, "ring_buf_alloc_ring failed\n");
         return -EIO;
     }
 
-    ret = device_i2s_prepare_receiver(dev, rb, i2s_rx_callback, info);
+    ret = device_i2s_prepare_receiver(dev, rb, i2s_test_rx_callback, info);
     if (ret) {
         fprintf(stderr, "prepare_rx failed: %d\n", ret);
         goto err_free_ring;
@@ -401,7 +400,7 @@ err_free_ring:
     return ret;
 }
 
-static void stop_receiver(struct device *dev)
+static void i2s_test_stop_receiver(struct device *dev)
 {
     int ret;
 
@@ -414,7 +413,7 @@ static void stop_receiver(struct device *dev)
         fprintf(stderr, "shutdown_rx failed: %d\n", ret);
 }
 
-static int start_streaming(struct i2s_test_info *info)
+static int i2s_test_start_streaming(struct i2s_test_info *info)
 {
     struct device *dev;
     uint16_t config_count;
@@ -513,9 +512,9 @@ static int start_streaming(struct i2s_test_info *info)
     }
 
     if (info->is_transmitter)
-        ret = start_transmitter(info, dev);
+        ret = i2s_test_start_transmitter(info, dev);
     else
-        ret = start_receiver(info, dev);
+        ret = i2s_test_start_receiver(info, dev);
 
     if (ret)
         goto err_dev_close;
@@ -524,12 +523,12 @@ static int start_streaming(struct i2s_test_info *info)
      * Wait forever.  Can't just exit because callback is still being
      * called by driver to keep filling/draining the ring buffer.
      */
-    while (sem_wait(&done_sem) && (errno == EINTR));
+    while (sem_wait(&i2s_test_done_sem) && (errno == EINTR));
 
     if (info->is_transmitter)
-        stop_transmitter(dev);
+        i2s_test_stop_transmitter(dev);
     else
-        stop_receiver(dev);
+        i2s_test_stop_receiver(dev);
 
     device_close(dev);
 
@@ -541,10 +540,10 @@ err_dev_close:
     return ret;
 }
 
-static void sig_handler(int sig)
+static void i2s_test_sig_handler(int sig)
 {
     errno = 0;
-    sem_post(&done_sem);
+    sem_post(&i2s_test_done_sem);
 }
 
 #ifdef CONFIG_BUILD_KERNEL
@@ -563,18 +562,18 @@ int i2s_test_main(int argc, char *argv[])
         return 1;
     }
 
-    ret = parse_cmdline(argc, argv, info);
+    ret = i2s_test_parse_cmdline(argc, argv, info);
     if (ret) {
-        print_usage(argv);
+        i2s_test_print_usage(argv);
         return 1;
     }
 
-    print_cmdline_summary(info);
+    i2s_test_print_cmdline_summary(info);
     printf("   info struct address: 0x%08x\n", info);
 
-    sem_init(&done_sem, 0, 0);
+    sem_init(&i2s_test_done_sem, 0, 0);
 
-    sig_act.sa_handler = sig_handler;
+    sig_act.sa_handler = i2s_test_sig_handler;
     sig_act.sa_flags = 0;
 
     ret = sigaction(SIGKILL, &sig_act, NULL);
@@ -591,7 +590,7 @@ int i2s_test_main(int argc, char *argv[])
         return 1;
     }
 
-    ret = start_streaming(info);
+    ret = i2s_test_start_streaming(info);
     if (ret)
         return 1;
 
