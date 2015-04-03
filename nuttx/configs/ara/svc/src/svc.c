@@ -33,6 +33,7 @@
 #include <nuttx/util.h>
 
 #include <arch/board/board.h>
+#include <unipro/connection.h>
 
 #include "string.h"
 #include "ara_board.h"
@@ -71,13 +72,7 @@ struct svc_interface_device_id {
     uint8_t device_id;          // DeviceID
     uint8_t port_id;            // PortID
     bool found;
-};
-
-struct svc_connection {
-    uint8_t device_id_0;        // DeviceID 0
-    uint8_t cport_0;            // CPort 0
-    uint8_t device_id_1;        // DeviceID 1
-    uint8_t cport_1;            // CPort 1
+    uint32_t state;
 };
 
 /*
@@ -101,29 +96,31 @@ static struct svc_interface_device_id devid[] = {
 };
 
 /* Connections table */
-static struct svc_connection conn[] = {
-#if defined(CONFIG_SVC_ROUTE_DEFAULT)
-    // APB1, CPort 0 <-> APB2, CPort 5, for GPIO
-    { DEV_ID_APB1, DEMO_GPIO_APB1_CPORT, DEV_ID_APB2, DEMO_GPIO_APB2_CPORT },
-    // APB1, CPort 1 <-> APB2, CPort 4, for I2C
-    { DEV_ID_APB1, DEMO_I2C_APB1_CPORT, DEV_ID_APB2, DEMO_I2C_APB2_CPORT },
-    // APB1, CPort 16 <-> APB2, CPort 16, for DSI
-    { DEV_ID_APB1, DEMO_DSI_APB1_CPORT, DEV_ID_APB2, DEMO_DSI_APB2_CPORT },
-#elif defined(CONFIG_SVC_ROUTE_SPRING6_APB2)
-    // SPRING6, CPort 0 <-> APB2, CPort 5, for GPIO
-    { DEV_ID_SPRING6, DEMO_GPIO_APB1_CPORT, DEV_ID_APB2, DEMO_GPIO_APB2_CPORT },
-    // SPRING6, CPort 1 <-> APB2, CPort 4, for I2C
-    { DEV_ID_SPRING6, DEMO_I2C_APB1_CPORT, DEV_ID_APB2, DEMO_I2C_APB2_CPORT },
-    // SPRING6, CPort 16 <-> APB2, CPort 16, for DSI
-    { DEV_ID_SPRING6, DEMO_DSI_APB1_CPORT, DEV_ID_APB2, DEMO_DSI_APB2_CPORT },
-#endif
+static struct unipro_connection conn[] = {
+    {
+        .device_id0 = DEV_ID_APB1,
+        .cport_id0  = 0,
+        .device_id1 = DEV_ID_APB2,
+        .cport_id1  = 0,
+        .tc = CPORT_TC0,
+        .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
+    },
 };
 
 
+static int connection_state_get(uint8_t id) {
+    unsigned int i;
+    for (i = 0; i < ARRAY_SIZE(devid); i++) {
+        if (id == devid[i].device_id) {
+            return devid[i].state;
+        }
+    }
+    return 0;
+}
+
 static int setup_default_routes(struct tsb_switch *sw) {
-    int i, j, rc;
-    uint8_t port_id_0, port_id_1;
-    bool port_id_0_found, port_id_1_found;
+    int rc;
+    unsigned int i, j;
     struct interface *iface;
 
     /*
@@ -134,11 +131,12 @@ static int setup_default_routes(struct tsb_switch *sw) {
     /* Setup Port <-> deviceID and configure the Switch routing table */
     for (i = 0; i < ARRAY_SIZE(devid); i++) {
         devid[i].found = false;
-        /* Retrieve the portID from the interface name */
+        /*
+         * Retrieve the portID from the interface name and fill in the device id table.
+         */
         interface_foreach(iface, j) {
             if (!strcmp(iface->name, devid[i].interface_name)) {
                 devid[i].port_id = iface->switch_portid;
-                devid[i].found = true;
 
                 dbg_info("Setting deviceID %d to interface %s (portID %d)\n",
                          devid[i].device_id, devid[i].interface_name,
@@ -151,62 +149,144 @@ static int setup_default_routes(struct tsb_switch *sw) {
                               devid[i].device_id, devid[i].interface_name);
                     continue;
                 }
+                devid[i].found = true;
+            }
+        }
+    }
+
+    /*
+     * Fill in the switch port id in the connections table if the
+     * interfaces are present.
+     */
+    for (i = 0; i < ARRAY_SIZE(conn); i++) {
+        for (j = 0; j < ARRAY_SIZE(devid); j++) {
+            if (!devid[j].found)
+                continue;
+
+            if (devid[j].device_id == conn[i].device_id0) {
+                conn[i].port_id0 = devid[j].port_id;
+            }
+
+            if (devid[j].device_id == conn[i].device_id1) {
+                conn[i].port_id1 = devid[j].port_id;
             }
         }
     }
 
     /* Connections setup */
-    for (i = 0; i < ARRAY_SIZE(conn); i++) {
-        /* Look up local and peer portIDs for the given deviceIDs */
-        port_id_0 = port_id_1 = 0;
-        port_id_0_found = port_id_1_found = false;
-        for (j = 0; j < ARRAY_SIZE(devid); j++) {
-            if (!devid[j].found)
+    int done = 0;
+    while (!done) {
+        /*
+         * Loop through all found bridges and update state
+         */
+        for (i = 0; i < ARRAY_SIZE(devid); i++) {
+            if (!devid[i].found) {
                 continue;
-
-            if (devid[j].device_id == conn[i].device_id_0) {
-                port_id_0 = devid[j].port_id;
-                port_id_0_found = true;
             }
-            if (devid[j].device_id == conn[i].device_id_1) {
-                port_id_1 = devid[j].port_id;
-                port_id_1_found = true;
+            rc = switch_dme_get(sw, devid[i].port_id, TSB_MAILBOX, 0, &devid[i].state);
+            if (rc) {
+                dbg_error("Failed to read mailbox on port %u\n", devid[i].port_id);
+                continue;
             }
         }
 
-        /* If found, create the requested connection */
-        if (port_id_0_found && port_id_1_found) {
-            dbg_info("Creating connection [%u:%u]->[%u:%u]\n",
-                     port_id_0, conn[i].cport_0,
-                     port_id_1, conn[i].cport_1);
+        for (i = 0; i < ARRAY_SIZE(conn); i++) {
+            /* If both are present, create the requested connection */
+            if ((connection_state_get(conn[i].device_id0) == CONNECTION_BOOTED) &&
+                (connection_state_get(conn[i].device_id1) == CONNECTION_BOOTED) &&
+                conn[i].state == 0) {
+                dbg_info("Creating connection: [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x\n",
+                        conn[i].port_id0,
+                        conn[i].device_id0,
+                        conn[i].cport_id0,
+                        conn[i].port_id1,
+                        conn[i].device_id1,
+                        conn[i].cport_id1,
+                        conn[i].tc,
+                        conn[i].flags);
 
-            /* Update Switch routing table */
-            rc = switch_setup_routing_table(sw,
-                                            conn[i].device_id_0, port_id_0,
-                                            conn[i].device_id_1, port_id_1);
-            if (rc) {
-                dbg_error("Failed to setup routing table [%u:%u]<->[%u:%u]\n",
-                          conn[i].device_id_0, port_id_0,
-                          conn[i].device_id_1, port_id_1);
-                return -1;
-            }
+                /* Update Switch routing table */
+                rc = switch_setup_routing_table(sw,
+                        conn[i].device_id0, conn[i].port_id0,
+                        conn[i].device_id1, conn[i].port_id1);
+                if (rc) {
+                    dbg_error("Failed to setup routing table [%u:%u]<->[%u:%u]\n",
+                            conn[i].device_id0, conn[i].port_id0,
+                            conn[i].device_id1, conn[i].port_id1);
+                    return -1;
+                }
 
-            /* Create connection */
-            rc = switch_connection_std_create(sw,
-                                              port_id_0,
-                                              conn[i].cport_0,
-                                              port_id_1,
-                                              conn[i].cport_1);
-            if (rc) {
-                dbg_error("Failed to create connection [%u:%u]<->[%u:%u]\n",
-                          port_id_0, conn[i].cport_0,
-                          port_id_1, conn[i].cport_1);
-                return -1;
+                rc = switch_connection_create(sw, &conn[i]);
+                if (rc) {
+                    return -1;
+                }
+
+                /*
+                 * And finally tell the bridges that they can proceed. They will then turn on
+                 * E2EFC and tokens will begin flowing.
+                 */
+#if 1
+                dbg_info("Setting local mailbox...\n");
+                rc = switch_dme_set(sw, conn[i].port_id0, TSB_MAILBOX, 0, 1);
+                if (rc) {
+                    return rc;
+                }
+                rc = switch_dme_set(sw, conn[i].port_id1, TSB_MAILBOX, 0, 1);
+                if (rc) {
+                    return rc;
+                }
+
+#endif
+                uint32_t cp0 = (1 << 16) | conn[i].cport_id0;
+                uint32_t cp1 = (2 << 16) | conn[i].cport_id1;
+                dbg_info("Setting peer mailbox...: %x\n", cp0);
+                rc = switch_dme_peer_set(sw, conn[i].port_id0, TSB_MAILBOX, 0, cp0);
+                if (rc) {
+                    return rc;
+                }
+                dbg_info("Setting peer mailbox...: %x\n", cp1);
+                rc = switch_dme_peer_set(sw, conn[i].port_id1, TSB_MAILBOX, 0, cp1);
+                if (rc) {
+                    return rc;
+                }
+
+                uint32_t mbox0, mbox1;
+                do {
+                    dbg_info("Waiting for mailbox clear\n");
+                    rc = switch_dme_get(sw, conn[i].port_id0, TSB_MAILBOX, 0, &mbox0);
+                    if (rc) {
+                        return rc;
+                    }
+                    rc = switch_dme_get(sw, conn[i].port_id1, TSB_MAILBOX, 0, &mbox1);
+                    if (rc) {
+                        return rc;
+                    }
+                    usleep(50000);
+                } while (mbox0 || mbox1);
+
+                conn[i].state = 1;
+                dbg_info("Created connection: [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x\n",
+                        conn[i].port_id0,
+                        conn[i].device_id0,
+                        conn[i].cport_id0,
+                        conn[i].port_id1,
+                        conn[i].device_id1,
+                        conn[i].cport_id1,
+                        conn[i].tc,
+                        conn[i].flags);
             }
-        } else {
-            dbg_error("Cannot find portIDs for deviceIDs %d and %d\n",
-                      port_id_0, port_id_1);
         }
+
+        for (i = 0; i < ARRAY_SIZE(conn); i++) {
+            if (!conn[i].state) {
+                break;
+            }
+
+            if (i == (ARRAY_SIZE(conn) - 1)) {
+                done = 1;
+            }
+        }
+        usleep(50000);
     }
 
     switch_dump_routing_table(sw);
