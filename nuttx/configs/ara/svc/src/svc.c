@@ -80,6 +80,10 @@ struct svc_interface_device_id {
  */
 #define DEV_ID_APB1             (1)
 #define DEV_ID_APB2             (2)
+#define DEV_ID_APB3             (3)
+#define DEV_ID_GPB1             (4)
+#define DEV_ID_GPB2             (5)
+
 #define DEV_ID_SPRING6          (8)
 #define DEMO_GPIO_APB1_CPORT    (0)
 #define DEMO_GPIO_APB2_CPORT    (5)
@@ -92,6 +96,9 @@ struct svc_interface_device_id {
 static struct svc_interface_device_id devid[] = {
     { "apb1", DEV_ID_APB1 },
     { "apb2", DEV_ID_APB2 },
+    { "apb3", DEV_ID_APB3 },
+    { "gpb1", DEV_ID_GPB1 },
+    { "gpb2", DEV_ID_GPB2 },
     { "spring6", DEV_ID_SPRING6 },
 };
 
@@ -101,6 +108,30 @@ static struct unipro_connection conn[] = {
         .device_id0 = DEV_ID_APB1,
         .cport_id0  = 0,
         .device_id1 = DEV_ID_APB2,
+        .cport_id1  = 0,
+        .tc = CPORT_TC0,
+        .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
+    },
+    {
+        .device_id0 = DEV_ID_APB1,
+        .cport_id0  = 1,
+        .device_id1 = DEV_ID_APB3,
+        .cport_id1  = 0,
+        .tc = CPORT_TC0,
+        .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
+    },
+    {
+        .device_id0 = DEV_ID_APB1,
+        .cport_id0  = 2,
+        .device_id1 = DEV_ID_GPB1,
+        .cport_id1  = 0,
+        .tc = CPORT_TC0,
+        .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
+    },
+    {
+        .device_id0 = DEV_ID_APB1,
+        .cport_id0  = 3,
+        .device_id1 = DEV_ID_GPB2,
         .cport_id1  = 0,
         .tc = CPORT_TC0,
         .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
