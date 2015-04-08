@@ -136,6 +136,14 @@ static struct unipro_connection conn[] = {
         .tc = CPORT_TC0,
         .flags = CPORT_FLAGS_E2EFC | CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N
     },
+    {
+        .device_id0 = DEV_ID_APB1,
+        .cport_id0  = 16,
+        .device_id1 = DEV_ID_APB2,
+        .cport_id1  = 16,
+        .tc = CPORT_TC0,
+        .flags = 0
+    },
 };
 
 
@@ -309,10 +317,6 @@ static int setup_default_routes(struct tsb_switch *sw) {
         }
 
         for (i = 0; i < ARRAY_SIZE(conn); i++) {
-            if (!conn[i].state) {
-                break;
-            }
-
             if (i == (ARRAY_SIZE(conn) - 1)) {
                 done = 1;
             }
