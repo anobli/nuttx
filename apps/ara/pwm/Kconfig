@@ -8,7 +8,6 @@ config ARA_BRIDGE_PWM
 	default n if !DEBUG
 	default y if DEBUG
 	depends on ARCH_CHIP_TSB
-	depends on PWM
 	select PWM
 	---help---
 		Enable the Ara PWM program.  Controls and tests PWM0 and PWM1.
@@ -21,7 +20,7 @@ config ARA_BRIDGE_PWM_PROGNAME
 	default "pwm"
 	depends on BUILD_KERNEL
 	---help---
-		This is the name of the program that will be use when the
+		This is the name of the program that will be used when the
 		NSH ELF program is installed.
 
 endif
