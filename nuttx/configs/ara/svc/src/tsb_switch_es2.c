@@ -487,7 +487,7 @@ static int es2_set(struct tsb_switch *sw,
         return -EPROTO;
     }
 
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, val);
 
     return cnf.rc;
@@ -535,7 +535,7 @@ static int es2_get(struct tsb_switch *sw,
     }
 
     *val = be32_to_cpu(cnf.attr_val);
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, *val);
 
     return cnf.rc;
@@ -586,7 +586,7 @@ static int es2_peer_set(struct tsb_switch *sw,
         dbg_error("%s(): unexpected CNF 0x%x\n", __func__, cnf.function_id);
         return -EPROTO;
     }
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, val);
 
     return cnf.rc;
@@ -634,7 +634,7 @@ static int es2_peer_get(struct tsb_switch *sw,
     }
 
     *val = be32_to_cpu(cnf.attr_val);
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, *val);
 
     return cnf.rc;
@@ -678,7 +678,7 @@ static int es2_lut_set(struct tsb_switch *sw,
         return -EPROTO;
     }
 
-    dbg_verbose("%s(): fid=%02x, rc=%u, portID=%u\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, portID=%u\n",
                 __func__, cnf.function_id, cnf.rc, cnf.portid);
 
     /* Return resultCode */
@@ -725,7 +725,7 @@ static int es2_lut_get(struct tsb_switch *sw,
 
     *dest_portid = cnf.dest_portid;
 
-    dbg_verbose("%s(): fid=%02x, rc=%u, portID=%u\n", __func__,
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, portID=%u\n", __func__,
                 cnf.function_id, cnf.rc, cnf.dest_portid);
 
     /* Return resultCode */
@@ -807,7 +807,7 @@ static int es2_dev_id_mask_set(struct tsb_switch *sw,
         return -EPROTO;
     }
 
-    dbg_verbose("%s(): fid=%02x, rc=%u\n", __func__,
+    dbg_verbose("%s(): fid=0x%02x, rc=%u\n", __func__,
                 cnf.function_id, cnf.rc);
 
     /* Return resultCode */
@@ -850,7 +850,7 @@ static int es2_dev_id_mask_get(struct tsb_switch *sw,
 
     memcpy(dst, &cnf.mask, sizeof(cnf.mask));
 
-    dbg_verbose("%s(): fid=%02x, rc=%u\n", __func__,
+    dbg_verbose("%s(): fid=0x%02x, rc=%u\n", __func__,
                 cnf.function_id, cnf.rc);
 
     /* Return resultCode */
@@ -894,7 +894,7 @@ static int es2_switch_attr_set(struct tsb_switch *sw,
         return -EPROTO;
     }
 
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, val);
 
     return cnf.rc;
@@ -935,7 +935,7 @@ static int es2_switch_attr_get(struct tsb_switch *sw,
     }
 
     *val = be32_to_cpu(cnf.attr_val);
-    dbg_verbose("%s(): fid=%02x, rc=%u, attr(%04x)=%04x\n",
+    dbg_verbose("%s(): fid=0x%02x, rc=%u, attr(%04x)=%04x\n",
                 __func__, cnf.function_id, cnf.rc, attrid, *val);
 
     return cnf.rc;
