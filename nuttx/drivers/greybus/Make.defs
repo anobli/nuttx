@@ -29,7 +29,11 @@
 ifeq ($(CONFIG_GREYBUS),y)
 
 CSRCS += greybus-core.c
+ifeq ($(CONFIG_TSB_CHIP_REV_ES2),y)
+CSRCS += greybus-unipro-es2.c
+else
 CSRCS += greybus-unipro.c
+endif
 CSRCS += gpio.c
 CSRCS += i2c.c
 CSRCS += battery.c
