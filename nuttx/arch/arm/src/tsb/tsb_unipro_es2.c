@@ -1,7 +1,9 @@
 #include <nuttx/config.h>
 #include <nuttx/arch.h>
 #include <nuttx/irq.h>
+#include <nuttx/gpio.h>
 #include <arch/board/board.h>
+#include <arch/tsb/gpio.h>
 #include <arch/tsb/unipro.h>
 #include <debug.h>
 #include <unipro/connection.h>
@@ -526,6 +528,7 @@ void unipro_init(void) {
 }
 
 void start_the_world(void) {
+    tsb_gpio_register();
     unipro_init();
     nsh_main(0, NULL);
 }

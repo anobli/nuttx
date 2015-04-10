@@ -84,7 +84,7 @@ static const struct command commands[] = {
     [ACTIVATE]      = {'a', "activate",
                        "<gpio> [...]",
                        "Assign GPIO lines for use by this app"},
-    [DEACTIVATE]    = {'d', "deactivate",
+    [DEACTIVATE]    = {'u', "deactivate",
                        "<gpio> [...]",
                        "Unassign GPIO lines for use by this app"},
     [GET_DIRECTION] = {'d', "get-direction",
@@ -252,12 +252,17 @@ int gpio_main(int argc, char *argv[])
             goto done;
         } else {
             printf("Setting (gpio, value):");
-            for (i = 0; i < argc; i += 2) {
-                gpios[i] = (uint8_t)atoi(argv[2 + i]);
-                values[i] = !!(uint8_t)atoi(argv[3 + i]);
-                printf(" (%u, %u)", *gpios, *values);
+            for (i = 0; i < argc/2; i++) {
+                /*
+                 * Get the next (gpio, value pair).  The number of pairs
+                 * is half the number of arguments.
+                 */
+                gpios[i] = (uint8_t)atoi(argv[2 + (2 * i)]);
+                values[i] = !!(uint8_t)atoi(argv[3 + (2 * i)]);
+                printf(" (%u, %u)", gpios[i], values[i]);
             }
-            do_set_value(gpios, values, (size_t)argc);
+            printf("\n");
+            do_set_value(gpios, values, (size_t)argc/2);
         }
         goto done;
     default:
