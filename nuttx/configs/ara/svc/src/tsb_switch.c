@@ -1077,7 +1077,12 @@ int switch_configure_link(struct tsb_switch *sw,
     const struct unipro_pwr_user_data *udata = &cfg->upro_user;
     uint32_t pwr_mode = tx->upro_mode | (rx->upro_mode << 4);
 
-    dbg_verbose("%s(): port=%d\n", __func__, port_id);
+    dbg_verbose("%s(): port=%d, TX: mode=%d/gear=%d/lanes=%d, "
+                "RX: %d/%d/%d, flags 0x%x\n",
+                __func__, port_id,
+                tx->upro_mode, tx->upro_gear, tx->upro_nlanes,
+                rx->upro_mode, rx->upro_gear, rx->upro_nlanes,
+                cfg->flags);
 
     /* FIXME ADD JIRA support hibernation and link off modes. */
     if (tx->upro_mode == UNIPRO_HIBERNATE_MODE ||
@@ -1136,6 +1141,10 @@ int switch_configure_link(struct tsb_switch *sw,
     rc = switch_apply_power_mode(sw, port_id, pwr_mode);
  out:
     dbg_insane("%s(): exit, rc=%d\n", __func__, rc);
+    if (rc) {
+        dbg_error("%s: failed to apply link power mode change: %d\n",
+                  __func__, rc);
+    }
     return rc;
 }
 
