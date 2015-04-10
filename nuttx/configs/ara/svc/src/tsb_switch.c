@@ -641,6 +641,8 @@ int switch_connection_create(struct tsb_switch *sw,
                                 c->cport_id0,
                                 c->port_id1,
                                 c->cport_id1);
+        dbg_error("%s: couldn't create connection: %d", __func__, rc);
+        goto err0;
     }
 
     return 0;
