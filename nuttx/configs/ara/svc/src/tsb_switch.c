@@ -499,40 +499,6 @@ static int switch_cport_disconnect(struct tsb_switch *sw,
     return 0;
 }
 
-static int switch_link_power_set_default(struct tsb_switch *sw,
-                                         uint8_t port_id) {
-    int rc;
-
-    if (LINK_DEFAULT_USE_HS_GEAR) {
-        rc = switch_configure_link_hs(sw,
-                                      port_id,
-                                      LINK_DEFAULT_HS_GEAR,
-                                      LINK_DEFAULT_HS_NLANES,
-                                      LINK_DEFAULT_FLAGS);
-    } else {
-        rc = switch_configure_link_pwm(sw,
-                                       port_id,
-                                       LINK_DEFAULT_PWM_GEAR,
-                                       LINK_DEFAULT_PWM_NLANES,
-                                       LINK_DEFAULT_FLAGS);
-    }
-    if (rc) {
-        return rc;
-    }
-
-    /* Set TSB_MaxSegmentConfig */
-    rc = switch_dme_peer_set(sw,
-                         port_id,
-                         TSB_MAXSEGMENTCONFIG,
-                         NCP_SELINDEX_NULL,
-                         MAX_SEGMENT_CONFIG);
-    if (rc) {
-        return rc;
-    }
-
-    return 0;
-}
-
 /**
  * @brief Assign a device id to a given port id
  */
@@ -664,19 +630,6 @@ int switch_connection_create(struct tsb_switch *sw,
              c->cport_id1,
              c->tc,
              c->flags);
-
-
-#if 0
-    rc = switch_link_power_set_default(sw, c->port_id0);
-    if (rc) {
-        goto err0;
-    }
-
-    rc = switch_link_power_set_default(sw, c->port_id1);
-    if (rc) {
-        goto err0;
-    }
-#endif
 
     rc = switch_cport_connect(sw, c);
     if (rc) {
