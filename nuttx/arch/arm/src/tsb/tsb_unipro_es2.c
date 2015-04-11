@@ -426,7 +426,7 @@ void unipro_init(void) {
      * must be enabled after the peer has T_CONNECTIONSTATE set to 1.
      *
      * With control protocol:
-     *     1) SVC probes all interfaces to find AP. 
+     *     1) SVC probes all interfaces to find AP.
      *     - Finds all AP bridges
      *     - sets route from switch:4 to ap_x:0
      *     - Sets cport 4 to CONNECTED
