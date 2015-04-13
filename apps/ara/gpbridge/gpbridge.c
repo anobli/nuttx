@@ -11,6 +11,7 @@
 
 int bridge_main(int argc, char *argv[])
 {
+    unipro_init();
     tsb_gpio_register();
 #ifdef CONFIG_BOARD_HAVE_DISPLAY
     display_init();

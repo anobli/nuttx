@@ -128,8 +128,8 @@ static void *svc_sim_fn(void * p_data)
         /* This cports are already allocated for display and camera */
         if (i == CPORTID_CDSI0 || i == CPORTID_CDSI1)
             continue;
-        unipro_init_cport(i);
-        unipro_driver_register(&unipro_driver, i);
+//        unipro_init_cport(i);
+//        unipro_driver_register(&unipro_driver, i);
     }
     send_svc_handshake();
     foreach_manifest(manifest_event);
@@ -156,13 +156,14 @@ int bridge_main(int argc, char *argv[])
 {
     int i;
 
+    unipro_init();
     tsb_gpio_register();
 #ifdef CONFIG_BOARD_HAVE_DISPLAY
     display_init();
 #endif
 
-    svc_register(recv_from_svc);
-    usbdev_apbinitialize(&usb_driver);
+//    svc_register(recv_from_svc);
+//    usbdev_apbinitialize(&usb_driver);
 
 #ifdef CONFIG_EXAMPLES_NSH
     printf("Calling NSH\n");
