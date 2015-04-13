@@ -229,11 +229,11 @@ static int setup_default_routes(struct tsb_switch *sw) {
             }
         }
 
+        up_udelay(2 * 1000 * 1000);
+
         for (i = 0; i < ARRAY_SIZE(conn); i++) {
             /* If both are present, create the requested connection */
-            if ((connection_state_get(conn[i].device_id0) == CONNECTION_BOOTED) &&
-                (connection_state_get(conn[i].device_id1) == CONNECTION_BOOTED) &&
-                conn[i].state == 0) {
+            if (conn[i].state == 0) {
                 dbg_info("Creating connection: [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x\n",
                         conn[i].port_id0,
                         conn[i].device_id0,
@@ -264,7 +264,7 @@ static int setup_default_routes(struct tsb_switch *sw) {
                  * And finally tell the bridges that they can proceed. They will then turn on
                  * E2EFC and tokens will begin flowing.
                  */
-#if 1
+#if 0
                 dbg_info("Setting local mailbox...\n");
                 rc = switch_dme_set(sw, conn[i].port_id0, TSB_MAILBOX, 0, 1);
                 if (rc) {
@@ -289,6 +289,7 @@ static int setup_default_routes(struct tsb_switch *sw) {
                     return rc;
                 }
 
+#if 0
                 uint32_t mbox0, mbox1;
                 do {
                     dbg_info("Waiting for mailbox clear\n");
@@ -302,6 +303,7 @@ static int setup_default_routes(struct tsb_switch *sw) {
                     }
                     usleep(50000);
                 } while (mbox0 || mbox1);
+#endif
 
                 conn[i].state = 1;
                 dbg_info("Created connection: [%u:%u:%u]<->[%u:%u:%u] TC: %u Flags: %x\n",
