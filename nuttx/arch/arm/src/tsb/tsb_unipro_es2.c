@@ -47,6 +47,8 @@
 #define DME_POWERMODEIND            (0xD040)
 #define TSB_INTERRUPT_ENABLE        (0xd080)
 #define TSB_INTERRUPT_STATUS        (0xd081)
+#define TSB_DEBUGTXBYTECOUNT        (0xd093)
+#define TSB_DEBUGRXBYTECOUNT        (0xd092)
 
 /*
  * "Map" constants for M-PHY fixups.
@@ -196,6 +198,8 @@ static void dump_regs(void) {
     DBG_ATTR(DME_DDBL2_PID);
     DBG_ATTR(TSB_MAILBOX);
     DBG_ATTR(TSB_MAXSEGMENTCONFIG);
+    DBG_ATTR(TSB_DEBUGTXBYTECOUNT);
+    DBG_ATTR(TSB_DEBUGRXBYTECOUNT);
     DBG_ATTR(DME_POWERMODEIND);
 
 #if 0
