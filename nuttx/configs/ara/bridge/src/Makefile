@@ -11,6 +11,13 @@ ifeq ($(CONFIG_PWM),y)
 CSRCS		+= up_pwm.c
 endif
 
+ifeq ($(CONFIG_BOARD_HAVE_DISPLAY), y)
+ifeq ($(CONFIG_APB1),y)
+CSRCS   += dsi_rx_init.c
+else
+CSRCS   += lg4892.c dsi_tx_init.c
+endif
+endif
 
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 
