@@ -387,10 +387,10 @@ int svc_init(void) {
      * Note: the IRQ must be enabled after all NCP commands have been sent
      * for the switch and Unipro devices initialization.
      */
-    rc = switch_irq_enable(sw, true);
-    if (rc) {
-        goto error3;
-    }
+    /* rc = switch_irq_enable(sw, true); */
+    /* if (rc) { */
+    /*     goto error3; */
+    /* } */
 
     /* Enable interrupts for all Unipro ports */
     for (i = 0; i < SWITCH_PORT_MAX; i++)
