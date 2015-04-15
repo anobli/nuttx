@@ -268,6 +268,8 @@ int interface_init(struct interface **ints, size_t nr_ints) {
             return rc;
         }
     }
+    
+    up_udelay(2000);
 
     up_udelay(POWER_ON_TIME_IN_US);
 
