@@ -357,12 +357,6 @@ int svc_init(void) {
         goto error1;
     }
 
-    rc = interface_init(info->interfaces, info->nr_interfaces);
-    if (rc < 0) {
-        dbg_error("%s: Failed to initialize interfaces\n", __func__);
-        goto error1;
-    }
-
     /* Init Switch */
     sw = switch_init(sw,
                      info->sw_1p1,
@@ -371,9 +365,15 @@ int svc_init(void) {
                      info->sw_irq);
     if (!sw) {
         dbg_error("%s: Failed to initialize switch.\n", __func__);
-        goto error2;
+        goto error1;
     }
     the_svc.sw = sw;
+
+    rc = interface_init(info->interfaces, info->nr_interfaces);
+    if (rc < 0) {
+        dbg_error("%s: Failed to initialize interfaces\n", __func__);
+        goto error2;
+    }
 
     /* Set up default routes */
     rc = setup_default_routes(sw);
@@ -389,7 +389,7 @@ int svc_init(void) {
      */
     rc = switch_irq_enable(sw, true);
     if (rc) {
-        goto error2;
+        goto error3;
     }
 
     /* Enable interrupts for all Unipro ports */
@@ -398,27 +398,26 @@ int svc_init(void) {
 
     return 0;
 
-error2:
-    switch_irq_enable(sw, false);
+error3:
     interface_exit();
+error2:
+    switch_exit(sw);
 error1:
     board_exit(sw);
+    the_svc.board_info = NULL;
 error0:
     free(sw);
     return -1;
 }
 
 void svc_exit(void) {
-    if (the_svc.sw)
-        switch_exit(the_svc.sw);
-
     interface_exit();
-
-    if (the_svc.sw)
+    if (the_svc.sw) {
+        switch_exit(the_svc.sw);
         board_exit(the_svc.sw);
-
-    free(the_svc.sw);
-    the_svc.sw = NULL;
-    the_svc.board_info = NULL;
+        free(the_svc.sw);
+        the_svc.sw = NULL;
+        the_svc.board_info = NULL;
+    }
 }
 
