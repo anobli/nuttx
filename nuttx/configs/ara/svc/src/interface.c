@@ -42,6 +42,7 @@
 #include "interface.h"
 
 #define POWER_OFF_TIME_IN_US            (500000)
+#define POWER_ON_TIME_IN_US             (10000)
 #define WAKEOUT_PULSE_DURATION_IN_US    (100000)
 
 static struct interface **interfaces;
@@ -267,6 +268,8 @@ int interface_init(struct interface **ints, size_t nr_ints) {
             return rc;
         }
     }
+
+    up_udelay(POWER_ON_TIME_IN_US);
 
     return 0;
 }
