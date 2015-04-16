@@ -10,8 +10,6 @@
     __TSB_MPHY_FIXUP(0, 0, 0, TSB_MPHY_FIXUP_MAGIC_R1)
 
 const struct tsb_mphy_fixup tsb_register_1_map_mphy_fixups[] = {
-    TSB_MPHY_FIXUP(0x8000, 0, 1),
-
     TSB_MPHY_MAGIC_R1_FIXUP(),
 
     TSB_MPHY_FIXUP(0x8004, 0, 0xCA),
@@ -42,7 +40,9 @@ const struct tsb_mphy_fixup tsb_register_1_map_mphy_fixups[] = {
     TSB_MPHY_FIXUP(0x80AA, 5, 0x0F),
     TSB_MPHY_FIXUP(0x80B4, 5, 0x50),
     TSB_MPHY_FIXUP(0x80B6, 5, 0x82),
-    TSB_MPHY_LAST_FIXUP(0x80B7, 5, 0x01),
+    TSB_MPHY_FIXUP(0x80B7, 5, 0x01),
+
+    TSB_MPHY_LAST_FIXUP(0x8000, 0, 0x01),
 };
 
 const struct tsb_mphy_fixup tsb_register_2_map_mphy_fixups[] = {
