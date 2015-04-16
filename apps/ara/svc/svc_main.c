@@ -191,7 +191,7 @@ static int link_test_torture(unsigned int nlanes) {
     static int ok_hs[SWITCH_PORT_MAX][3][2][2];
     static int fail_pwm[SWITCH_PORT_MAX][7][2];
     static int ok_pwm[SWITCH_PORT_MAX][7][2];
-    const int pwm_maxgear = 7;
+    const int pwm_maxgear = 4;
     const int hs_maxgear = 3;
 
     memset(fail_hs, 0, sizeof(fail_hs));
