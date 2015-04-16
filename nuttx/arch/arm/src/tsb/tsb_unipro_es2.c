@@ -432,25 +432,19 @@ static int es2_fixup_mphy() {
     struct tsb_mphy_fixup *fu;
 
     /*
-     * Apply the "register 1" map fixups.
+     * Apply the "register 2" map fixups.
      */
-    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_1, 0,
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_2, 0,
                             &urc);
     if (urc) {
-        lldbg("%s: failed to switch to register 1 map: %u\n",
+        lldbg("%s: failed to switch to register 2 map: %u\n",
               __func__, urc);
         return urc;
     }
-    fu = tsb_register_1_map_mphy_fixups;
+    fu = tsb_register_2_map_mphy_fixups;
     do {
-        if (tsb_mphy_r1_fixup_is_magic(fu)) {
-            /* The magic R1 fixups come from the mysterious and solemn
-             * debug register 0x0720. */
-            unipro_attr_local_write(0x8002, (debug_0720 >> 1) & 0x1f, 0, &urc);
-        } else {
-            unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
-                                    &urc);
-        }
+        unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
+                                &urc);
         if (urc) {
             lldbg("%s: failed to apply register 1 map fixup: %u\n",
                   __func__, urc);
@@ -470,19 +464,25 @@ static int es2_fixup_mphy() {
     }
 
     /*
-     * Apply the "register 2" map fixups.
+     * Apply the "register 1" map fixups.
      */
-    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_2, 0,
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_1, 0,
                             &urc);
     if (urc) {
-        lldbg("%s: failed to switch to register 2 map: %u\n",
+        lldbg("%s: failed to switch to register 1 map: %u\n",
               __func__, urc);
         return urc;
     }
-    fu = tsb_register_2_map_mphy_fixups;
+    fu = tsb_register_1_map_mphy_fixups;
     do {
-        unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
-                                &urc);
+        if (tsb_mphy_r1_fixup_is_magic(fu)) {
+            /* The magic R1 fixups come from the mysterious and solemn
+             * debug register 0x0720. */
+            unipro_attr_local_write(0x8002, (debug_0720 >> 1) & 0x1f, 0, &urc);
+        } else {
+            unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
+                                    &urc);
+        }
         if (urc) {
             lldbg("%s: failed to apply register 1 map fixup: %u\n",
                   __func__, urc);
