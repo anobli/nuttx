@@ -182,26 +182,17 @@ static int link_test_port(uint8_t port,
     return link_test_port_v(port, hs, gear, nlanes, flags, series, 0);
 }
 
-static int link_test_torture(void) {
+static int link_test_torture(unsigned int nlanes) {
     int rc = 0;
     struct ara_board_info *info = ara_svc->board_info;
-    const unsigned int trials_per_test = 30;
+    const unsigned int trials_per_test = 500;
     int i;
     static int fail_hs[SWITCH_PORT_MAX][3][2][2];
     static int ok_hs[SWITCH_PORT_MAX][3][2][2];
     static int fail_pwm[SWITCH_PORT_MAX][7][2];
     static int ok_pwm[SWITCH_PORT_MAX][7][2];
-    /*
-     * FIXME:
-     *
-     * We of course want to include PWM in the test -- but see the
-     * "black magic" comment below. Something unexplained is
-     * preventing us from doing that.
-     *
-     */
-    const int pwm_maxgear = 0;
+    const int pwm_maxgear = 7;
     const int hs_maxgear = 3;
-    const unsigned int nlanes = 2;
 
     memset(fail_hs, 0, sizeof(fail_hs));
     memset(ok_hs, 0, sizeof(ok_hs));
@@ -213,7 +204,7 @@ static int link_test_torture(void) {
     printk("\t%d trials per power mode.\n", trials_per_test);
     printk("\t%d lanes used for each trial.\n", nlanes);
     if (pwm_maxgear > 1) {
-        printk("\tPWM gears 1-%d\n", pwm_maxgear);
+        printk("\tPWM gears 1-%d tested.\n", pwm_maxgear);
     } else {
         printk("\tPWM gears not tested.\n", pwm_maxgear);
     }
@@ -292,7 +283,7 @@ static int link_test_torture(void) {
     }
 
 
-    printk("Finished torture test. Results:\n");
+    printk("Finished power mode test. Results:\n");
     for (i = 0; i < info->nr_interfaces; i++) {
         struct interface *iface = info->interfaces[i];
         unsigned int port = iface->switch_portid;
@@ -304,36 +295,10 @@ static int link_test_torture(void) {
         printk("-----------------------------------------------------------"
                "\n");
         printk("Interface %s, port %u\n", iface->name, port);
-        printk("            Gear:     1     2     3     4     5     6     7\n");
-        printk("                  ----- ----- ----- ----- ----- ----- -----\n");
-
-        /*
-         * XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-         *
-         * [MBOLIVAR, DON'T MERGE]
-         *
-         * Repeatable black magic:
-         *
-         * - If we test PWM and do these printk()s, we get a hardfault
-         *   every time, right around here.
-         *
-         * - If we test PWM and *don't* do these printk()s (leave the
-         *   below #if 0 unchanged), there is no hardfault (but then
-         *   we can't read the status).
-         *
-         * - If we *don't* test PWM (e.g. by just returning 0 in
-         *   link_test_port() when asked to test PWM) and do these
-         *   printk()s, no hardfault (but then the status is useless).
-         *
-         * Leaving it for now -- the same problem doesn't happen when
-         * testing HS gears (why?!), and that's what we're trying to
-         * test right now.
-         *
-         * XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-         */
-#if 0
-        printk("     PWM fail/OK: %02d/%02d %02d/%02d %02d/%02d %02d/%02d "
-               "%02d/%02d %02d/%02d %02d/%02d\n",
+        printk("            Gear:        1       2       3       4       5       6       7\n");
+        printk("                   ------- ------- ------- ------- ------- ------- -------\n");
+        printk("      PWM fail/OK: %03d/%03d %03d/%03d %03d/%03d %03d/%03d "
+               "%03d/%03d %03d/%03d %03d/%03d\n",
                fail_pwm[port][0][0], ok_pwm[port][0][0],
                fail_pwm[port][1][0], ok_pwm[port][1][0],
                fail_pwm[port][2][0], ok_pwm[port][2][0],
@@ -341,8 +306,8 @@ static int link_test_torture(void) {
                fail_pwm[port][4][0], ok_pwm[port][4][0],
                fail_pwm[port][5][0], ok_pwm[port][5][0],
                fail_pwm[port][6][0], ok_pwm[port][6][0]);
-        printk("Auto PWM fail/OK: %02d/%02d %02d/%02d %02d/%02d %02d/%02d "
-               "%02d/%02d %02d/%02d %02d/%02d\n",
+        printk(" Auto PWM fail/OK: %03d/%03d %03d/%03d %03d/%03d %03d/%03d "
+               "%03d/%03d %03d/%03d %03d/%03d\n",
                fail_pwm[port][0][1], ok_pwm[port][0][1],
                fail_pwm[port][1][1], ok_pwm[port][1][1],
                fail_pwm[port][2][1], ok_pwm[port][2][1],
@@ -350,21 +315,19 @@ static int link_test_torture(void) {
                fail_pwm[port][4][1], ok_pwm[port][4][1],
                fail_pwm[port][5][1], ok_pwm[port][5][1],
                fail_pwm[port][6][1], ok_pwm[port][6][1]);
-#endif
-
-        printk("     HS-A fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("     HS-A fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][0][0], ok_hs[port][0][0][0],
                fail_hs[port][1][0][0], ok_hs[port][1][0][0],
                fail_hs[port][2][0][0], ok_hs[port][2][0][0]);
-        printk("Auto HS-A fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("Auto HS-A fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][1][0], ok_hs[port][0][1][0],
                fail_hs[port][1][1][0], ok_hs[port][1][1][0],
                fail_hs[port][2][1][0], ok_hs[port][2][1][0]);
-        printk("     HS-B fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("     HS-B fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][0][1], ok_hs[port][0][0][1],
                fail_hs[port][1][0][1], ok_hs[port][1][0][1],
                fail_hs[port][2][0][1], ok_hs[port][2][0][1]);
-        printk("Auto HS-B fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("Auto HS-B fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][1][1], ok_hs[port][0][1][1],
                fail_hs[port][1][1][1], ok_hs[port][1][1][1],
                fail_hs[port][2][1][1], ok_hs[port][2][1][1]);
@@ -391,6 +354,8 @@ static int link_test(int argc, char *argv[]) {
     const char opts[] = "hp:m:g:l:ats:";
 
     argc--;
+    optind = 0; /* This is needed on builds where apps are linked into
+                 * the kernel */
     while ((c = getopt(argc, args, opts)) != -1) {
         switch (c) {
         case 'h':
@@ -444,9 +409,13 @@ static int link_test(int argc, char *argv[]) {
         printk("Must specify one of -p or -t.\n");
         link_test_usage(EXIT_FAILURE);
     }
+    if (nlanes <= 0) {
+        printk("Number of lanes %d must be positive.\n", nlanes);
+        link_test_usage(EXIT_FAILURE);
+    }
 
     if (torture) {
-        rc = link_test_torture();
+        rc = link_test_torture((unsigned int)nlanes);
     } else {
         if (port < 0 || port > SWITCH_PORT_MAX) {
             printk("Invalid port %d, must be between %d and %d.\n",
@@ -648,6 +617,8 @@ static int dme_io(int argc, char *argv[]) {
      */
     args = argv + 2;
     argc--;
+    optind = 0; /* This is needed on builds where apps are linked into
+                 * the kernel */
     while ((c = getopt(argc, args, opts)) != -1) {
         switch (c) {
         case 'a':
