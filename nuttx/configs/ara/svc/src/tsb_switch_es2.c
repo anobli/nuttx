@@ -393,6 +393,43 @@ static int es2_fixup_mphy(struct tsb_switch *sw)
         const struct tsb_mphy_fixup *fu;
 
         /*
+         * Apply the "register 2" map fixups.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                            TSB_MPHY_MAP_TSB_REGISTER_2);
+        if (rc) {
+            dbg_error("%s(): failed to set switch map to \"TSB register 2\":"
+                      "%d\n", __func__, rc);
+            return rc;
+        }
+        fu = tsb_register_2_map_mphy_fixups;
+        do {
+            dbg_verbose("%s: port=%u, attrid=0x%04x, select_index=%u, "
+                        "value=0x%02x\n",
+                        __func__, port, fu->attrid, fu->select_index,
+                        fu->value);
+            rc = switch_dme_set(sw, port, fu->attrid, fu->select_index,
+                                fu->value);
+            if (rc) {
+                dbg_error("%s(): failed to apply register 2 map fixup: %d\n",
+                          __func__, rc);
+                return rc;
+            }
+        } while (!tsb_mphy_fixup_is_last(fu++));
+
+
+        /*
+         * Switch to "normal" map.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                            TSB_MPHY_MAP_NORMAL);
+        if (rc) {
+            dbg_error("%s(): failed to set switch map to normal: %d\n",
+                      __func__, rc);
+            return rc;
+        }
+
+        /*
          * Apply the "register 1" map fixups.
          */
         rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
@@ -422,42 +459,6 @@ static int es2_fixup_mphy(struct tsb_switch *sw)
             }
             if (rc) {
                 dbg_error("%s(): failed to apply register 1 map fixup: %d\n",
-                          __func__, rc);
-                return rc;
-            }
-        } while (!tsb_mphy_fixup_is_last(fu++));
-
-        /*
-         * Switch to "normal" map.
-         */
-        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
-                            TSB_MPHY_MAP_NORMAL);
-        if (rc) {
-            dbg_error("%s(): failed to set switch map to normal: %d\n",
-                      __func__, rc);
-            return rc;
-        }
-
-        /*
-         * Apply the "register 2" map fixups.
-         */
-        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
-                            TSB_MPHY_MAP_TSB_REGISTER_2);
-        if (rc) {
-            dbg_error("%s(): failed to set switch map to \"TSB register 2\":"
-                      "%d\n", __func__, rc);
-            return rc;
-        }
-        fu = tsb_register_2_map_mphy_fixups;
-        do {
-            dbg_verbose("%s: port=%u, attrid=0x%04x, select_index=%u, "
-                        "value=0x%02x\n",
-                        __func__, port, fu->attrid, fu->select_index,
-                        fu->value);
-            rc = switch_dme_set(sw, port, fu->attrid, fu->select_index,
-                                fu->value);
-            if (rc) {
-                dbg_error("%s(): failed to apply register 2 map fixup: %d\n",
                           __func__, rc);
                 return rc;
             }
