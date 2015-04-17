@@ -46,6 +46,7 @@
 #include "up_debug.h"
 #include "tsb_switch.h"
 #include "tsb_switch_driver_es2.h"
+#include "tsb_es2_mphy_fixups.h"
 
 #define SWITCH_SPI_INIT_DELAY   (700)   // us
 
@@ -67,8 +68,20 @@ struct sw_es2_priv {
 
 #define NCP_CPORT   (0x03)
 
+#define TSB_MPHY_MAP (0x7F)
+#define     TSB_MPHY_MAP_TSB_REGISTER_1 (0x01)
+#define     TSB_MPHY_MAP_NORMAL         (0x00)
+#define     TSB_MPHY_MAP_TSB_REGISTER_2 (0x81)
+
 #define CHECK_VALID_ENTRY(entry) \
     (valid_bitmask[15 - ((entry) / 8)] & (1 << ((entry)) % 8))
+
+#define WSTATUS0_TXENTFIFOREMAIN  (0x03)
+#define WSTATUS1_TXENTFIFOREMAIN  (0xff)
+#define WSTATUS2_TXDATAFIFOREMAIN (0x7f)
+#define WSTATUS3_LENERR           (0x40)
+#define WSTATUS3_TXENTFIFOFULL    (0x02)
+#define WSTATUS3_TXDATAFIFOFULL   (0x01)
 
 /* Attributes as sources of interrupts from the Unipro ports */
 static uint16_t unipro_irq_attr[] = {
@@ -90,6 +103,101 @@ static uint16_t unipro_irq_attr[] = {
     TSB_MAILBOX
 };
 
+static int es2_transfer_is_ncp_write_status_ok(uint8_t *status_block,
+                                               size_t size)
+{
+    size_t i;
+    __attribute__((packed))
+    struct write_status {
+        uint8_t strw;
+        uint8_t cport;
+        uint16_t len;
+        uint8_t status[4];
+        uint8_t endp;
+    };
+    struct write_status *w_status;
+    uint16_t tx_ent_remain;
+    uint8_t tx_data_remain;
+    int len_err, tx_ent_full, tx_data_full;
+
+    /*
+     * Find the status report within the block.
+     */
+    for (i = 0; i < size; i++) {
+        switch (status_block[i]) {
+        case STRW:
+            w_status = (struct write_status*)&status_block[i];
+            goto block_found;
+        case HNUL: /* fall through */
+        case LNUL:
+            continue;
+        default:
+            dbg_error("%s: invalid byte 0x%x in status block\n",
+                      __func__, status_block[i]);
+            dbg_print_buf(DBG_ERROR, status_block, SWITCH_WRITE_STATUS_NNULL);
+            return -EPROTO;
+        }
+    }
+    if (i == size) {
+        dbg_error("%s: no STRW found in write status block:\n", __func__);
+        dbg_print_buf(DBG_ERROR, status_block, size);
+        return -EPROTO;
+    }
+
+ block_found:
+    /*
+     * Sanity check the header and footer.
+     */
+    DEBUGASSERT(w_status->strw == STRW);
+    if (w_status->cport != NCP_CPORT) {
+        dbg_error("%s: unexpected cport %u in write status (expected %d)\n",
+                  __func__, w_status->cport, NCP_CPORT);
+        return -EPROTO;
+    } else if (be16_to_cpu(w_status->len) != sizeof(w_status->status)) {
+        dbg_error("%s: unexpected write status length %u (expected %u)\n",
+                  __func__, be16_to_cpu(w_status->len),
+                  (unsigned int)sizeof(w_status->status));
+        return -EPROTO;
+    } else if (w_status->endp != ENDP) {
+        dbg_error("%s: unexpected write status byte 0x%02x in ENDP position "
+                  "(expected 0x02%x)\n",
+                  __func__, w_status->endp, ENDP);
+        return -EPROTO;
+    }
+
+    /*
+     * Parse the status report itself.
+     */
+    tx_ent_remain = (((w_status->status[0] & WSTATUS0_TXENTFIFOREMAIN) << 8) |
+                     (w_status->status[1] & WSTATUS1_TXENTFIFOREMAIN));
+    tx_data_remain = w_status->status[2] & WSTATUS2_TXDATAFIFOREMAIN;
+    len_err = !!(w_status->status[3] & WSTATUS3_LENERR);
+    tx_ent_full = !!(w_status->status[3] & WSTATUS3_TXENTFIFOFULL);
+    tx_data_full = !!(w_status->status[3] & WSTATUS3_TXDATAFIFOFULL);
+    if (tx_ent_remain == 0 && !tx_ent_full) {
+        dbg_error("%s: TXENTFIFOREMAIN=0, but TXENTFIFOFULL is not set.\n",
+                  __func__);
+        return -EPROTO;
+    }
+    if (tx_data_remain == 0 && !tx_data_full) {
+        dbg_error("%s: TXDATAFIFOREMAIN=0, but TXDATAFIFOFULL is not set.\n",
+                  __func__);
+        return -EPROTO;
+    }
+    if (len_err) {
+        dbg_error("%s: payload length error.\n", __func__);
+        return -EIO;
+    }
+    if (tx_ent_full) {
+        dbg_warn("%s: TX entry FIFO is full; write data was discarded.\n");
+        return -EAGAIN;
+    }
+    if (tx_data_full) {
+        dbg_warn("%s: TX data FIFO is full; write data was discarded.\n");
+        return -EAGAIN;
+    }
+    return 0;
+}
 
 /* Transfer function for NCP port */
 static int es2_transfer(struct tsb_switch *sw,
@@ -136,20 +244,24 @@ static int es2_transfer(struct tsb_switch *sw,
     SPI_SNDBLOCK(spi_dev, tx_buf, tx_size);
     SPI_SNDBLOCK(spi_dev, write_trailer, sizeof write_trailer);
     // Wait write status, send NULL frames while waiting
-    SPI_EXCHANGE(spi_dev, NULL, priv->rxbuf,
-                 SWITCH_WAIT_REPLY_LEN + SWITCH_WRITE_STATUS_LEN);
+    SPI_EXCHANGE(spi_dev, NULL, priv->rxbuf, SWITCH_WRITE_STATUS_NNULL);
 
     dbg_insane("Write payload:\n");
     dbg_print_buf(DBG_INSANE, tx_buf, tx_size);
     dbg_insane("Write status:\n");
-    dbg_print_buf(DBG_INSANE, priv->rxbuf,
-                  SWITCH_WAIT_REPLY_LEN + SWITCH_WRITE_STATUS_LEN);
+    dbg_print_buf(DBG_INSANE, priv->rxbuf, SWITCH_WRITE_STATUS_NNULL);
 
     // Make sure we use 16-bit frames
     size = sizeof write_header + tx_size + sizeof write_trailer
-           + SWITCH_WAIT_REPLY_LEN + SWITCH_WRITE_STATUS_LEN;
+           + SWITCH_WRITE_STATUS_NNULL;
     if (size % 2) {
         SPI_SEND(spi_dev, LNUL);
+    }
+
+    ret = es2_transfer_is_ncp_write_status_ok(priv->rxbuf,
+                                              SWITCH_WRITE_STATUS_NNULL);
+    if (ret) {
+        goto out;
     }
 
     // Read CNF and retry if NACK received
@@ -209,10 +321,161 @@ static int es2_transfer(struct tsb_switch *sw,
 
     } while (!rcv_done && !null_rxbuf);
 
+ out:
     SPI_SELECT(spi_dev, id, false);
     SPI_LOCK(spi_dev, false);
 
     return ret;
+}
+
+static uint32_t es2_mphy_trim_fixup_value(uint32_t mphy_trim[4], uint8_t port)
+{
+    switch (port) {
+    case 0:
+        return (mphy_trim[0] >> 1) & 0x1f;
+    case 1:
+        return (mphy_trim[0] >> 9) & 0x1f;
+    case 2:
+        return (mphy_trim[0] >> 17) & 0x1f;
+    case 3:
+        return (mphy_trim[0] >> 25) & 0x1f;
+    case 4:
+        return (mphy_trim[1] >> 1) & 0x1f;
+    case 5:
+        return (mphy_trim[1] >> 9) & 0x1f;
+    case 6:
+        return (mphy_trim[1] >> 17) & 0x1f;
+    case 7:
+        return (mphy_trim[1] >> 25) & 0x1f;
+    case 8:
+        return (mphy_trim[2] >> 1) & 0x1f;
+    case 9:
+        return (mphy_trim[2] >> 9) & 0x1f;
+    case 10:
+        return (mphy_trim[2] >> 17) & 0x1f;
+    case 11:
+        return (mphy_trim[2] >> 25) & 0x1f;
+    case 12:
+        return (mphy_trim[3] >> 1) & 0x1f;
+    case 13:
+        return (mphy_trim[3] >> 9) & 0x1f;
+    default:
+    /* Defense against unexpected SWITCH_UNIPORT_MAX changes */
+#if SWITCH_UNIPORT_MAX != 14
+#error "Unexpected number of switch UniPorts; M-PHY fixup will break"
+#endif
+        return 0xdeadbeef;
+    }
+}
+
+/*
+ * Apply M-PHY fixups.
+ *
+ * This function must while all links are still at PWM-G1 (e.g.,
+ * immediately after switch and interface initialization).
+ */
+static int es2_fixup_mphy(struct tsb_switch *sw)
+{
+    uint32_t mphy_trim[4];
+    int rc;
+    uint8_t port;
+
+    rc = (switch_sys_ctrl_get(sw, SC_MPHY_TRIM0, mphy_trim + 0) ||
+          switch_sys_ctrl_get(sw, SC_MPHY_TRIM1, mphy_trim + 1) ||
+          switch_sys_ctrl_get(sw, SC_MPHY_TRIM2, mphy_trim + 2) ||
+          switch_sys_ctrl_get(sw, SC_MPHY_TRIM3, mphy_trim + 3));
+    if (rc) {
+        dbg_error("%s(): can't read MPHY trim values: %d\n", rc);
+        return rc;
+    }
+
+    for (port = 0; port < SWITCH_UNIPORT_MAX; port++) {
+        const struct tsb_mphy_fixup *fu;
+
+        /*
+         * Apply the "register 2" map fixups.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                            TSB_MPHY_MAP_TSB_REGISTER_2);
+        if (rc) {
+            dbg_error("%s(): failed to set switch map to \"TSB register 2\":"
+                      "%d\n", __func__, rc);
+            return rc;
+        }
+        fu = tsb_register_2_map_mphy_fixups;
+        do {
+            dbg_verbose("%s: port=%u, attrid=0x%04x, select_index=%u, "
+                        "value=0x%02x\n",
+                        __func__, port, fu->attrid, fu->select_index,
+                        fu->value);
+            rc = switch_dme_set(sw, port, fu->attrid, fu->select_index,
+                                fu->value);
+            if (rc) {
+                dbg_error("%s(): failed to apply register 2 map fixup: %d\n",
+                          __func__, rc);
+                return rc;
+            }
+        } while (!tsb_mphy_fixup_is_last(fu++));
+
+
+        /*
+         * Switch to "normal" map.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                            TSB_MPHY_MAP_NORMAL);
+        if (rc) {
+            dbg_error("%s(): failed to set switch map to normal: %d\n",
+                      __func__, rc);
+            return rc;
+        }
+
+        /*
+         * Apply the "register 1" map fixups.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                          TSB_MPHY_MAP_TSB_REGISTER_1);
+        if (rc) {
+            dbg_error("%s(): failed to switch to TSB register 1 map: %d\n",
+                      __func__, rc);
+            return rc;
+        }
+        fu = tsb_register_1_map_mphy_fixups;
+        do {
+            if (tsb_mphy_r1_fixup_is_magic(fu)) {
+                /* The "magic" fixups for the switch come from the
+                 * M-PHY trim values. */
+                uint32_t mpt = es2_mphy_trim_fixup_value(mphy_trim, port);
+                dbg_verbose("%s: port=%u, attrid=0x%04x, select_index=%u, "
+                            "value=0x%02x\n",
+                            __func__, port, 0x8002, 0, mpt);
+                rc = switch_dme_set(sw, port, 0x8002, 0, mpt);
+            } else {
+                dbg_verbose("%s: port=%u, attrid=0x%04x, select_index=%u, "
+                            "value=0x%02x\n",
+                            __func__, port, fu->attrid, fu->select_index,
+                            fu->value);
+                rc = switch_dme_set(sw, port, fu->attrid,
+                                    fu->select_index, fu->value);
+            }
+            if (rc) {
+                dbg_error("%s(): failed to apply register 1 map fixup: %d\n",
+                          __func__, rc);
+                return rc;
+            }
+        } while (!tsb_mphy_fixup_is_last(fu++));
+
+        /*
+         * Switch to "normal" map.
+         */
+        rc = switch_dme_set(sw, port, TSB_MPHY_MAP, 0,
+                            TSB_MPHY_MAP_NORMAL);
+        if (rc) {
+            dbg_error("%s(): failed to re-set switch map to normal: %d\n",
+                      __func__, rc);
+            return rc;
+        }
+    }
+    return 0;
 }
 
 /* Switch communication init procedure */
@@ -243,12 +506,21 @@ static int es2_init_seq(struct tsb_switch *sw)
         if (!memcmp(priv->rxbuf + i, init_reply, sizeof(init_reply)))
             rc = 0;
     }
-    if (rc)
-        dbg_error("%s: Failed to init the SPI link with the switch\n",
-                  __func__);
 
     SPI_SELECT(spi_dev, id, false);
     SPI_LOCK(spi_dev, false);
+
+    if (rc) {
+        dbg_error("%s: Failed to init the SPI link with the switch\n",
+                  __func__);
+        return rc;
+    }
+
+    rc = es2_fixup_mphy(sw);
+    if (rc) {
+        dbg_error("%s: failed to fix up the M-PHY attributes\n",
+                  __func__);
+    }
 
     return rc;
 }

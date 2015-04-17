@@ -1454,3 +1454,6 @@ endif
 if ARCH_BOARD_ARA_LGD
 source "configs/ara/lgd/Kconfig"
 endif
+if ARCH_BOARD_ARA_BRIDGE
+source "configs/ara/bridge/Kconfig"
+endif

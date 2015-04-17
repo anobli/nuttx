@@ -177,16 +177,16 @@ static int setup_default_routes(struct tsb_switch *sw) {
             if (!strcmp(iface->name, devid[i].interface_name)) {
                 devid[i].port_id = iface->switch_portid;
 
-                dbg_info("Setting deviceID %d to interface %s (portID %d)\n",
-                         devid[i].device_id, devid[i].interface_name,
-                         devid[i].port_id);
-
                 rc = switch_if_dev_id_set(sw, devid[i].port_id,
                                           devid[i].device_id);
                 if (rc) {
                     dbg_error("Failed to assign deviceID %u to interface %s\n",
                               devid[i].device_id, devid[i].interface_name);
                     continue;
+                } else {
+                    dbg_info("Set deviceID %d to interface %s (portID %d)\n",
+                             devid[i].device_id, devid[i].interface_name,
+                             devid[i].port_id);
                 }
                 devid[i].found = true;
             }
@@ -337,7 +337,7 @@ int svc_init(void) {
     struct tsb_switch *sw;
     int i, rc;
 
-    dbg_set_config(DBG_SVC, DBG_VERBOSE);
+    dbg_set_config(DBG_SVC | DBG_SWITCH, DBG_INFO);
     dbg_info("Initializing SVC\n");
 
     // Allocate and zero the sw struct
@@ -361,12 +361,6 @@ int svc_init(void) {
         goto error1;
     }
 
-    rc = interface_init(info->interfaces, info->nr_interfaces);
-    if (rc < 0) {
-        dbg_error("%s: Failed to initialize interfaces\n", __func__);
-        goto error1;
-    }
-
     /* Init Switch */
     sw = switch_init(sw,
                      info->sw_1p1,
@@ -375,9 +369,15 @@ int svc_init(void) {
                      info->sw_irq);
     if (!sw) {
         dbg_error("%s: Failed to initialize switch.\n", __func__);
-        goto error2;
+        goto error1;
     }
     the_svc.sw = sw;
+
+    rc = interface_init(info->interfaces, info->nr_interfaces);
+    if (rc < 0) {
+        dbg_error("%s: Failed to initialize interfaces\n", __func__);
+        goto error2;
+    }
 
     /* Set up default routes */
     rc = setup_default_routes(sw);
@@ -391,10 +391,10 @@ int svc_init(void) {
      * Note: the IRQ must be enabled after all NCP commands have been sent
      * for the switch and Unipro devices initialization.
      */
-    rc = switch_irq_enable(sw, true);
-    if (rc) {
-        goto error2;
-    }
+    /* rc = switch_irq_enable(sw, true); */
+    /* if (rc) { */
+    /*     goto error3; */
+    /* } */
 
     /* Enable interrupts for all Unipro ports */
     for (i = 0; i < SWITCH_PORT_MAX; i++)
@@ -402,27 +402,26 @@ int svc_init(void) {
 
     return 0;
 
-error2:
-    switch_irq_enable(sw, false);
+error3:
     interface_exit();
+error2:
+    switch_exit(sw);
 error1:
     board_exit(sw);
+    the_svc.board_info = NULL;
 error0:
     free(sw);
     return -1;
 }
 
 void svc_exit(void) {
-    if (the_svc.sw)
-        switch_exit(the_svc.sw);
-
     interface_exit();
-
-    if (the_svc.sw)
+    if (the_svc.sw) {
+        switch_exit(the_svc.sw);
         board_exit(the_svc.sw);
-
-    free(the_svc.sw);
-    the_svc.sw = NULL;
-    the_svc.board_info = NULL;
+        free(the_svc.sw);
+        the_svc.sw = NULL;
+        the_svc.board_info = NULL;
+    }
 }
 

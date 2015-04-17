@@ -33,6 +33,10 @@
 #include <string.h>
 
 #define NUM_CPORTS   (4)
+#ifndef ARRAY_SIZE
+    #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
 
 static int greybus_rx_handler(unsigned int cportid, void *data, size_t len);
 
@@ -41,6 +45,23 @@ static unsigned int greybus_msg[] = {
     0xbaddcafe,
     0x1badb002,
     0x1badf00d
+};
+
+static int dsi_attrs[] = {
+    0x4020, 16,
+    0x4021, 16,
+    0x4022, 16,
+    0x4023, 16,
+    0x4024, 16,
+    0x4025, 16,
+    0x4026, 16,
+    0x4027, 16,
+    0x4028, 16,
+    0x4029, 16,
+    0x402a, 16,
+    0x402b, 16,
+    0x4060, 16,
+    0x4061, 16,
 };
 
 static struct unipro_driver greybus_driver = {
@@ -125,6 +146,8 @@ static int attr_write(int argc, char **argv) {
 int unipro_main(int argc, char **argv) {
     char *op;
     int rc;
+    int i;
+    unsigned int val;
     op = argv[1];
 
     if (strcmp(op, "r") == 0) {
@@ -135,6 +158,12 @@ int unipro_main(int argc, char **argv) {
 
         return attr_read(argc - 2, &argv[2]);
 
+    } else if (strcmp(op, "dsi") == 0) {
+        for (i =0; i < ARRAY_SIZE(dsi_attrs); i += 2) {
+            unipro_attr_read(dsi_attrs[i], &val, dsi_attrs[i+1], 0, &rc);
+            printf("attr: %x, selector: %d, val: %x resultcode: %x\n", dsi_attrs[i], dsi_attrs[i+1], val, rc);
+  
+        } 
     } else if (strcmp(op, "w") == 0) {
         return attr_write(argc - 2, &argv[2]);
 

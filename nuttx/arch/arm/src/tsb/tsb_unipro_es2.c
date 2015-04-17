@@ -14,7 +14,7 @@
 #include "chip.h"
 #include "tsb_scm.h"
 #include "tsb_unipro_es2.h"
-
+#include "tsb_es2_mphy_fixups.h"
 
 /* UniPro Attributes */
 #define T_REGACCCTRL_TESTONLY       (0x007F)
@@ -47,6 +47,17 @@
 #define DME_POWERMODEIND            (0xD040)
 #define TSB_INTERRUPT_ENABLE        (0xd080)
 #define TSB_INTERRUPT_STATUS        (0xd081)
+#define TSB_DEBUGTXBYTECOUNT        (0xd093)
+#define TSB_DEBUGRXBYTECOUNT        (0xd092)
+
+/*
+ * "Map" constants for M-PHY fixups.
+ */
+#define TSB_MPHY_MAP (0x7F)
+#define     TSB_MPHY_MAP_TSB_REGISTER_1 (0x01)
+#define     TSB_MPHY_MAP_NORMAL         (0x00)
+#define     TSB_MPHY_MAP_TSB_REGISTER_2 (0x81)
+
 
 #define unipro_attr_local_read(attr, val, sel, rc) \
     unipro_attr_read(attr, val, sel, 0, rc)
@@ -187,6 +198,8 @@ static void dump_regs(void) {
     DBG_ATTR(DME_DDBL2_PID);
     DBG_ATTR(TSB_MAILBOX);
     DBG_ATTR(TSB_MAXSEGMENTCONFIG);
+    DBG_ATTR(TSB_DEBUGTXBYTECOUNT);
+    DBG_ATTR(TSB_DEBUGRXBYTECOUNT);
     DBG_ATTR(DME_POWERMODEIND);
 
 #if 0
@@ -413,7 +426,89 @@ static int irq_unipro(int irqn, void *context) {
     return 0;
 }
 
+static int es2_fixup_mphy() {
+    uint32_t debug_0720 = tsb_get_debug_reg(0x0720);
+    uint32_t urc;
+    struct tsb_mphy_fixup *fu;
+
+    /*
+     * Apply the "register 2" map fixups.
+     */
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_2, 0,
+                            &urc);
+    if (urc) {
+        lldbg("%s: failed to switch to register 2 map: %u\n",
+              __func__, urc);
+        return urc;
+    }
+    fu = tsb_register_2_map_mphy_fixups;
+    do {
+        unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
+                                &urc);
+        if (urc) {
+            lldbg("%s: failed to apply register 1 map fixup: %u\n",
+                  __func__, urc);
+            return urc;
+        }
+    } while (!tsb_mphy_fixup_is_last(fu++));
+
+    /*
+     * Switch to "normal" map.
+     */
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_NORMAL, 0,
+                            &urc);
+    if (urc) {
+        lldbg("%s: failed to switch to normal map: %u\n",
+              __func__, urc);
+        return urc;
+    }
+
+    /*
+     * Apply the "register 1" map fixups.
+     */
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_TSB_REGISTER_1, 0,
+                            &urc);
+    if (urc) {
+        lldbg("%s: failed to switch to register 1 map: %u\n",
+              __func__, urc);
+        return urc;
+    }
+    fu = tsb_register_1_map_mphy_fixups;
+    do {
+        if (tsb_mphy_r1_fixup_is_magic(fu)) {
+            /* The magic R1 fixups come from the mysterious and solemn
+             * debug register 0x0720. */
+            unipro_attr_local_write(0x8002, (debug_0720 >> 1) & 0x1f, 0, &urc);
+        } else {
+            unipro_attr_local_write(fu->attrid, fu->value, fu->select_index,
+                                    &urc);
+        }
+        if (urc) {
+            lldbg("%s: failed to apply register 1 map fixup: %u\n",
+                  __func__, urc);
+            return urc;
+        }
+    } while (!tsb_mphy_fixup_is_last(fu++));
+
+    /*
+     * Switch to "normal" map.
+     */
+    unipro_attr_local_write(TSB_MPHY_MAP, TSB_MPHY_MAP_NORMAL, 0,
+                            &urc);
+    if (urc) {
+        lldbg("%s: failed to switch to normal map: %u\n",
+              __func__, urc);
+        return urc;
+    }
+
+    return 0;
+}
+
 void unipro_init(void) {
+    if (es2_fixup_mphy()) {
+        lldbg("Failed to apply M-PHY fixups (results in link instability at HS-G1).\n");
+    }
+
     /*
      * 5.7.4.1 Pause function is disabled when RX_PAUSE_SIZE is 0
      */
@@ -426,7 +521,7 @@ void unipro_init(void) {
      * must be enabled after the peer has T_CONNECTIONSTATE set to 1.
      *
      * With control protocol:
-     *     1) SVC probes all interfaces to find AP. 
+     *     1) SVC probes all interfaces to find AP.
      *     - Finds all AP bridges
      *     - sets route from switch:4 to ap_x:0
      *     - Sets cport 4 to CONNECTED

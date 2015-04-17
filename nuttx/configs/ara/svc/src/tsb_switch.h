@@ -108,7 +108,13 @@
 #define PA_FASTMODE_RXTX                (0x11)
 #define PA_FASTAUTOMODE_RXTX            (0x44)
 #define PA_GEAR                         (0x1)
-#define TSB_DME_POWERMODEIND_SUCCESS    (2)
+#define TSB_DME_POWERMODEIND_NONE       (0) // no new value since last read
+#define TSB_DME_POWERMODEIND_OK         (1 << 0)
+#define TSB_DME_POWERMODEIND_LOCAL      (1 << 1)
+#define TSB_DME_POWERMODEIND_REMOTE     (1 << 2)
+#define TSB_DME_POWERMODEIND_BUSY       (1 << 3)
+#define TSB_DME_POWERMODEIND_CAP_ERR    (1 << 4)
+#define TSB_DME_POWERMODEIND_FATAL_ERR  (1 << 5)
 
 /* Number of external ports, excluding the internal switch port */
 #define SWITCH_UNIPORT_MAX          (14)
@@ -304,7 +310,7 @@ static inline int switch_configure_link_hs(struct tsb_switch *sw,
         .upro_tx_cfg = UNIPRO_FAST_PWR_CFG(auto_variant, gear, nlanes),
         .upro_rx_cfg = UNIPRO_FAST_PWR_CFG(auto_variant, gear, nlanes),
         .upro_user   = TSB_DEFAULT_PWR_USER_DATA,
-        .flags       = 0,
+        .flags       = UPRO_LINKF_TX_TERMINATION | UPRO_LINKF_RX_TERMINATION,
     };
     return switch_configure_link(sw, port_id, &lcfg, NULL);
 }
@@ -329,7 +335,7 @@ static inline int switch_configure_link_pwm(struct tsb_switch *sw,
         .upro_tx_cfg = UNIPRO_SLOW_PWR_CFG(auto_variant, gear, nlanes),
         .upro_rx_cfg = UNIPRO_SLOW_PWR_CFG(auto_variant, gear, nlanes),
         .upro_user   = TSB_DEFAULT_PWR_USER_DATA,
-        .flags       = UPRO_LINKF_TX_TERMINATION | UPRO_LINKF_RX_TERMINATION,
+        .flags       = UPRO_LINKF_TX_TERMINATION,
     };
     return switch_configure_link(sw, port_id, &lcfg, NULL);
 }

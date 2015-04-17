@@ -39,6 +39,7 @@
 #include "tsb_switch.h"
 #include "ara_board.h"
 #include "interface.h"
+#include "attr_names.h"
 #endif
 
 #define DBG_COMP DBG_SVC
@@ -56,6 +57,8 @@ enum {
     INIT,
     EXIT,
     LINKTEST,
+    LINKSTATUS,
+    DME_IO,
     MAX_CMD,
 };
 
@@ -71,6 +74,8 @@ static const struct command commands[] = {
     [EXIT] = {'e', "exit", "exit/de-initialize SVC"},
     [LINKTEST] = {'l', "linktest",
                   "test UniPro link power mode configuration"},
+    [LINKSTATUS] = {'s', "linkstatus", "print UniPro link status bit mask"},
+    [DME_IO]  = {'d', "dme", "get/set DME attributes"},
 };
 
 static void usage(int exit_status) {
@@ -177,26 +182,17 @@ static int link_test_port(uint8_t port,
     return link_test_port_v(port, hs, gear, nlanes, flags, series, 0);
 }
 
-static int link_test_torture(void) {
+static int link_test_torture(unsigned int nlanes) {
     int rc = 0;
     struct ara_board_info *info = ara_svc->board_info;
-    const unsigned int trials_per_test = 30;
+    const unsigned int trials_per_test = 500;
     int i;
     static int fail_hs[SWITCH_PORT_MAX][3][2][2];
     static int ok_hs[SWITCH_PORT_MAX][3][2][2];
     static int fail_pwm[SWITCH_PORT_MAX][7][2];
     static int ok_pwm[SWITCH_PORT_MAX][7][2];
-    /*
-     * FIXME:
-     *
-     * We of course want to include PWM in the test -- but see the
-     * "black magic" comment below. Something unexplained is
-     * preventing us from doing that.
-     *
-     */
-    const int pwm_maxgear = 0;
+    const int pwm_maxgear = 4;
     const int hs_maxgear = 3;
-    const unsigned int nlanes = 2;
 
     memset(fail_hs, 0, sizeof(fail_hs));
     memset(ok_hs, 0, sizeof(ok_hs));
@@ -208,7 +204,7 @@ static int link_test_torture(void) {
     printk("\t%d trials per power mode.\n", trials_per_test);
     printk("\t%d lanes used for each trial.\n", nlanes);
     if (pwm_maxgear > 1) {
-        printk("\tPWM gears 1-%d\n", pwm_maxgear);
+        printk("\tPWM gears 1-%d tested.\n", pwm_maxgear);
     } else {
         printk("\tPWM gears not tested.\n", pwm_maxgear);
     }
@@ -287,7 +283,7 @@ static int link_test_torture(void) {
     }
 
 
-    printk("Finished torture test. Results:\n");
+    printk("Finished power mode test. Results:\n");
     for (i = 0; i < info->nr_interfaces; i++) {
         struct interface *iface = info->interfaces[i];
         unsigned int port = iface->switch_portid;
@@ -299,36 +295,10 @@ static int link_test_torture(void) {
         printk("-----------------------------------------------------------"
                "\n");
         printk("Interface %s, port %u\n", iface->name, port);
-        printk("            Gear:     1     2     3     4     5     6     7\n");
-        printk("                  ----- ----- ----- ----- ----- ----- -----\n");
-
-        /*
-         * XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-         *
-         * [MBOLIVAR, DON'T MERGE]
-         *
-         * Repeatable black magic:
-         *
-         * - If we test PWM and do these printk()s, we get a hardfault
-         *   every time, right around here.
-         *
-         * - If we test PWM and *don't* do these printk()s (leave the
-         *   below #if 0 unchanged), there is no hardfault (but then
-         *   we can't read the status).
-         *
-         * - If we *don't* test PWM (e.g. by just returning 0 in
-         *   link_test_port() when asked to test PWM) and do these
-         *   printk()s, no hardfault (but then the status is useless).
-         *
-         * Leaving it for now -- the same problem doesn't happen when
-         * testing HS gears (why?!), and that's what we're trying to
-         * test right now.
-         *
-         * XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-         */
-#if 0
-        printk("     PWM fail/OK: %02d/%02d %02d/%02d %02d/%02d %02d/%02d "
-               "%02d/%02d %02d/%02d %02d/%02d\n",
+        printk("            Gear:        1       2       3       4       5       6       7\n");
+        printk("                   ------- ------- ------- ------- ------- ------- -------\n");
+        printk("      PWM fail/OK: %03d/%03d %03d/%03d %03d/%03d %03d/%03d "
+               "%03d/%03d %03d/%03d %03d/%03d\n",
                fail_pwm[port][0][0], ok_pwm[port][0][0],
                fail_pwm[port][1][0], ok_pwm[port][1][0],
                fail_pwm[port][2][0], ok_pwm[port][2][0],
@@ -336,8 +306,8 @@ static int link_test_torture(void) {
                fail_pwm[port][4][0], ok_pwm[port][4][0],
                fail_pwm[port][5][0], ok_pwm[port][5][0],
                fail_pwm[port][6][0], ok_pwm[port][6][0]);
-        printk("Auto PWM fail/OK: %02d/%02d %02d/%02d %02d/%02d %02d/%02d "
-               "%02d/%02d %02d/%02d %02d/%02d\n",
+        printk(" Auto PWM fail/OK: %03d/%03d %03d/%03d %03d/%03d %03d/%03d "
+               "%03d/%03d %03d/%03d %03d/%03d\n",
                fail_pwm[port][0][1], ok_pwm[port][0][1],
                fail_pwm[port][1][1], ok_pwm[port][1][1],
                fail_pwm[port][2][1], ok_pwm[port][2][1],
@@ -345,21 +315,19 @@ static int link_test_torture(void) {
                fail_pwm[port][4][1], ok_pwm[port][4][1],
                fail_pwm[port][5][1], ok_pwm[port][5][1],
                fail_pwm[port][6][1], ok_pwm[port][6][1]);
-#endif
-
-        printk("     HS-A fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("     HS-A fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][0][0], ok_hs[port][0][0][0],
                fail_hs[port][1][0][0], ok_hs[port][1][0][0],
                fail_hs[port][2][0][0], ok_hs[port][2][0][0]);
-        printk("Auto HS-A fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("Auto HS-A fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][1][0], ok_hs[port][0][1][0],
                fail_hs[port][1][1][0], ok_hs[port][1][1][0],
                fail_hs[port][2][1][0], ok_hs[port][2][1][0]);
-        printk("     HS-B fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("     HS-B fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][0][1], ok_hs[port][0][0][1],
                fail_hs[port][1][0][1], ok_hs[port][1][0][1],
                fail_hs[port][2][0][1], ok_hs[port][2][0][1]);
-        printk("Auto HS-B fail/OK: %02d/%02d %02d/%02d %02d/%02d\n",
+        printk("Auto HS-B fail/OK: %03d/%03d %03d/%03d %03d/%03d\n",
                fail_hs[port][0][1][1], ok_hs[port][0][1][1],
                fail_hs[port][1][1][1], ok_hs[port][1][1][1],
                fail_hs[port][2][1][1], ok_hs[port][2][1][1]);
@@ -386,6 +354,8 @@ static int link_test(int argc, char *argv[]) {
     const char opts[] = "hp:m:g:l:ats:";
 
     argc--;
+    optind = 0; /* This is needed on builds where apps are linked into
+                 * the kernel */
     while ((c = getopt(argc, args, opts)) != -1) {
         switch (c) {
         case 'h':
@@ -439,9 +409,13 @@ static int link_test(int argc, char *argv[]) {
         printk("Must specify one of -p or -t.\n");
         link_test_usage(EXIT_FAILURE);
     }
+    if (nlanes <= 0) {
+        printk("Number of lanes %d must be positive.\n", nlanes);
+        link_test_usage(EXIT_FAILURE);
+    }
 
     if (torture) {
-        rc = link_test_torture();
+        rc = link_test_torture((unsigned int)nlanes);
     } else {
         if (port < 0 || port > SWITCH_PORT_MAX) {
             printk("Invalid port %d, must be between %d and %d.\n",
@@ -463,6 +437,367 @@ static int link_test(int argc, char *argv[]) {
     }
 
     return rc;
+}
+
+static int link_status(int argc, char *argv[]) {
+    uint32_t link_status;
+    struct tsb_switch *sw = ara_svc->sw;
+    int rc;
+
+    if (argc != 2) {
+        printk("Ignoring unexpected arguments.\n");
+    }
+
+    rc = switch_internal_getattr(sw, SWSTA, &link_status);
+    if (rc) {
+        printk("Error: could not read link status: %d.\n", rc);
+    } else {
+        printk("Link status: 0x%x\n", link_status);
+    }
+    return rc;
+}
+
+static void dme_io_usage(void) {
+    printk("svc %s <r|w> [options]: usage:\n", commands[DME_IO].longc);
+    printk("    Common options:\n");
+    printk("        -h: print this message and exit\n");
+    printk("\n");
+    printk("    Options for reading an attribute or group of attributes:\n");
+    printk("    svc %s r [-a <attrs>] [-s <sel>] [-p <port>] [-P]:\n",
+           commands[DME_IO].longc);
+    printk("\n");
+    printk("        -a <attrs>: attribute (in hexadecimal) to read, or one of:\n");
+    printk("                      \"L1\" (PHY layer),\n");
+    printk("                      \"L1.5\" (PHY adapter layer),\n");
+    printk("                      \"L2\" (link layer),\n");
+    printk("                      \"L3\" (network layer),\n");
+    printk("                      \"L4\" (transport layer),\n");
+    printk("                      \"DME\" (DME),\n");
+    printk("                      \"all\" (all of the above).\n");
+    printk("                    If missing, default is \"all\".\n");
+    printk("                    If <attrs> is \"L4\", -P is implied.\n");
+    printk("        -s <sel>: attribute selector index (default is 0)\n");
+    printk("        -p <port>: port to read attribute on (default is 0)\n");
+    printk("        -P: if present, do a peer (instead of switch local) read\n");
+    printk("\n");
+    printk("    Options for writing an attribute:\n");
+    printk("    svc %s w -a <attr> [-s <sel>] [-p <port>] [-P] <value>:\n",
+           commands[DME_IO].longc);
+    printk("\n");
+    printk("        -a <attr>: attribute (in hexadecimal) to write.\n");
+    printk("        -s <sel>: attribute selector index (default is 0)\n");
+    printk("        -p <port>: port to read attribute on (default is 0)\n");
+    printk("        -P: if present, do a peer (instead of switch local) write\n");
+}
+
+static int dme_io_dump(struct tsb_switch *sw, uint8_t port,
+                       const char *attr_str, uint16_t attr,
+                       uint16_t selector, int peer) {
+    int rc;
+    uint32_t val;
+
+    if (peer) {
+        rc = switch_dme_peer_get(sw, port, attr, selector, &val);
+    } else {
+        rc = switch_dme_get(sw, port, attr, selector, &val);
+    }
+
+    if (rc) {
+        if (attr_str) {
+            printk("Error: can't read attribute %s (0x%x): %d\n",
+                   attr_str, attr, rc);
+        } else {
+            printk("Error: can't read attribute 0x%x: rc=%d\n", attr, rc);
+        }
+        return -EIO;
+    }
+    if (attr_str) {
+        printk("Port=%d, peer=%s, sel=%d, %s (0x%x) = 0x%x (%u)\n",
+               port,
+               peer ? "yes" : "no",
+               selector,
+               attr_str,
+               attr,
+               val,
+               val);
+    } else {
+        printk("Port=%d peer=%s, sel=%d, 0x%x = 0x%x (%u)\n",
+               port,
+               peer ? "yes" : "no",
+               selector,
+               attr,
+               val,
+               val);
+    }
+    return 0;
+}
+
+static int dme_io_set(struct tsb_switch *sw, uint8_t port,
+                      char *attr_str, uint16_t attr, uint32_t val,
+                      uint16_t selector, int peer) {
+    int rc;
+
+    if (peer) {
+        rc = switch_dme_peer_set(sw, port, attr, selector, val);
+    } else {
+        rc = switch_dme_set(sw, port, attr, selector, val);
+    }
+
+    if (rc) {
+        if (attr_str) {
+            printk("Error: can't set attribute %s (0x%x): rc=%d\n",
+                   attr_str, attr, rc);
+        } else {
+            printk("Error: can't set attribute 0x%x: rc=%d\n",
+                   attr, rc);
+        }
+        return -EIO;
+    }
+    if (attr_str) {
+        printk("Port=%d, peer=%s, sel=%d, set %s (0x%x) = 0x%x (%u)\n",
+               port,
+               peer ? "yes" : "no",
+               selector,
+               attr_str,
+               attr,
+               val,
+               val);
+    } else {
+        printk("Port=%d, peer=%s, sel=%d, set 0x%x = 0x%x (%u)\n",
+               port,
+               peer ? "yes" : "no",
+               attr,
+               val,
+               val);
+    }
+    return 0;
+}
+
+static int dme_io(int argc, char *argv[]) {
+    enum {
+        NONE, ALL, ONE, L1, L1_5, L2, L3, L4, L5, LD,
+    };
+    int which_attrs = NONE;
+    const char opts[] = "a:s:p:Ph"; /* TODO: add an -S option for switch number
+                                     * when multiple switches are available
+                                     * ... */
+    struct tsb_switch *sw = ara_svc->sw; /* and get the right switch here. */
+    uint16_t selector = 0;
+    int peer = 0;
+    char *end;
+    char **args;
+    uint8_t port = 0;
+    uint16_t attr = 0xbeef;
+    int attr_set = 0;
+    uint32_t val = 0xdeadbeef;
+    int val_set = 1;
+    int read;
+    int c;
+
+    /*
+     * Decide whether this is a read or a write.
+     */
+    args = argv + 1;
+    argc--;
+    if (!strcmp(args[1], "r") || !strcmp(args[1], "R")) {
+        read = 1;
+    } else if (!strcmp(args[1], "w") || !strcmp(args[1], "W")) {
+        read = 0;
+    } else if (!strcmp(args[1], "-h")) {
+        dme_io_usage();
+        return EXIT_SUCCESS;
+    } else {
+        printk("Must specify \"r\" or \"w\".\n\n");
+        dme_io_usage();
+        return EXIT_FAILURE;
+    }
+
+    /*
+     * Parse the other command line options.
+     */
+    args = argv + 2;
+    argc--;
+    optind = 0; /* This is needed on builds where apps are linked into
+                 * the kernel */
+    while ((c = getopt(argc, args, opts)) != -1) {
+        switch (c) {
+        case 'a':
+            if (!strcmp(optarg, "all")) {
+                which_attrs = ALL;
+            } else if (!strcmp(optarg, "l1") || !strcmp(optarg, "L1")) {
+                which_attrs = L1;
+            } else if (!strcmp(optarg, "l1.5") || !strcmp(optarg, "L1.5")) {
+                which_attrs = L1_5;
+            } else if (!strcmp(optarg, "l2") || !strcmp(optarg, "L2")) {
+                which_attrs = L2;
+            } else if (!strcmp(optarg, "l3") || !strcmp(optarg, "L3")) {
+                which_attrs = L3;
+            } else if (!strcmp(optarg, "l4") || !strcmp(optarg, "L4")) {
+                which_attrs = L4;
+                peer = 1;
+            } else if (!strcmp(optarg, "dme") || !strcmp(optarg, "DME")) {
+                which_attrs = LD;
+            } else {
+                end = NULL;
+                attr = strtoul(optarg, &end, 16);
+                if (*end) {
+                    printk("-a %s invalid: must be one of: \"all\", \"L1\", "
+                           "\"L2\", \"L3\", \"L4\", \"DME\", or a hexadecimal "
+                           "attribute\n\n", optarg);
+                    dme_io_usage();
+                    return EXIT_FAILURE;
+                }
+                which_attrs = ONE;
+                attr_set = 1;
+            }
+            break;
+        case 's':
+            end = NULL;
+            selector = strtoul(optarg, &end, 10);
+            if (*end) {
+                printk("-s %s invalid: must specify a decimal selector "
+                       "index\n\n", optarg);
+                dme_io_usage();
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'p':
+            end = NULL;
+            port = strtoul(optarg, &end, 10);
+            if (*end) {
+                printk("-p %s invalid: must specify a decimal port", optarg);
+                dme_io_usage();
+                return EXIT_FAILURE;
+            }
+            break;
+        case 'P':
+            peer = 1;
+            break;
+        case 'h':
+            dme_io_usage();
+            return EXIT_SUCCESS;
+        default:
+        case '?':
+            printk("Unrecognized argument.\n");
+            dme_io_usage();
+            return EXIT_FAILURE;
+        }
+    }
+
+    /*
+     * Set some default values, validate options, and parse any arguments.
+     */
+    if (which_attrs == NONE) {
+        if (read) {
+            which_attrs = ALL;
+        } else if (which_attrs != ONE) {
+            printk("Must specify -a with decimal attribute when writing.\n");
+            return EXIT_FAILURE;
+        }
+    }
+    if (which_attrs != ONE && !read) {
+        printk("Only one attribute can be written at a time.\n\n");
+        dme_io_usage();
+        return EXIT_FAILURE;
+    }
+    if (which_attrs == L4 && !peer) {
+        printk("No L4 attributes on switch ports (missing -P?).\n\n");
+        dme_io_usage();
+        return EXIT_FAILURE;
+    }
+    if (!read) {
+        if (!attr_set) {
+            printk("Must specify -a when writing.\n\n");
+            dme_io_usage();
+            return EXIT_FAILURE;
+        }
+        if (optind >= argc) {
+            printk("Must specify value to write.\n\n");
+            dme_io_usage();
+            return EXIT_FAILURE;
+        } else {
+            end = NULL;
+            val = strtoul(args[optind], &end, 10);
+            if (end) {
+                printk("Invalid value to write: %s.\n\n", args[optind]);
+                dme_io_usage();
+                return EXIT_FAILURE;
+            }
+            val_set = 1;
+        }
+    }
+
+    /*
+     * Do the I/O.
+     */
+    if (read) {
+        int rc;
+        int i;
+        const struct attr_name_group *attr_name_groups[6] = {0};
+        int n_attr_name_groups;
+        switch (which_attrs) {
+        case ONE:
+            ASSERT(attr_set);
+            return dme_io_dump(sw, port, NULL, attr, selector, peer);
+        case ALL:
+            attr_name_groups[0] = &unipro_l1_attr_group;
+            attr_name_groups[1] = &unipro_l1_5_attr_group;
+            attr_name_groups[2] = &unipro_l2_attr_group;
+            attr_name_groups[3] = &unipro_l3_attr_group;
+            if (peer) {
+                attr_name_groups[4] = &unipro_l4_attr_group;
+                attr_name_groups[5] = &unipro_dme_attr_group;
+                n_attr_name_groups = 6;
+            } else {
+                attr_name_groups[4] = &unipro_dme_attr_group;
+                n_attr_name_groups = 5;
+            }
+            break;
+        case L1:
+            attr_name_groups[0] = &unipro_l1_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        case L1_5:
+            attr_name_groups[0] = &unipro_l1_5_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        case L2:
+            attr_name_groups[0] = &unipro_l2_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        case L3:
+            attr_name_groups[0] = &unipro_l3_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        case L4:
+            attr_name_groups[0] = &unipro_l4_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        case LD:
+            attr_name_groups[0] = &unipro_dme_attr_group;
+            n_attr_name_groups = 1;
+            break;
+        default:
+        case NONE:
+            printk("BUG: %s: can't happen.\n", __func__);
+            return EXIT_FAILURE;
+        }
+        for (i = 0; i < n_attr_name_groups; i++) {
+            const struct attr_name *ans = attr_name_groups[i]->attr_names;
+            while (ans->name) {
+                rc = (dme_io_dump(sw, port,
+                                  ans->name, ans->attr,
+                                  selector, peer) ||
+                      rc);
+                ans++;
+            }
+        }
+        return rc;
+    } else {
+        ASSERT(attr_set);
+        ASSERT(val_set);
+        return dme_io_set(sw, port, NULL, attr, val, selector, peer);
+    }
 }
 
 static int ara_svc_main(int argc, char *argv[]) {
@@ -504,6 +839,12 @@ static int ara_svc_main(int argc, char *argv[]) {
         break;
     case LINKTEST:
         rc = link_test(argc, argv);
+        break;
+    case LINKSTATUS:
+        rc = link_status(argc, argv);
+        break;
+    case DME_IO:
+        rc = dme_io(argc, argv);
         break;
     default:
         usage(EXIT_FAILURE);
