@@ -71,6 +71,7 @@ SUBDIRS  += gpio
 SUBDIRS  += bdbpm
 SUBDIRS  += springpm
 SUBDIRS  += pinshare
+SUBDIRS  += gb_loopback
 
 # Sub-directories that might need context setup.  Directories may need
 # context setup for a variety of reasons, but the most common is because
@@ -86,6 +87,7 @@ CNTXTDIRS += gpio
 CNTXTDIRS += bdbpm
 CNTXTDIRS += springpm
 CNTXTDIRS += pinshare
+CNTXTDIRS += gb_loopback
 endif
 
 all: nothing
