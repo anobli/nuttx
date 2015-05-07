@@ -237,7 +237,6 @@ bool _manifest_parse(void *data, size_t size, int release)
                      GREYBUS_VERSION_MAJOR, GREYBUS_VERSION_MINOR);
             return false;
         }
-    }
 
     /* OK, find all the descriptors */
     desc = (struct greybus_descriptor *)(header + 1);
@@ -322,6 +321,14 @@ void parse_manifest_blob(char *hpe)
         (struct greybus_manifest_header *)(hpe + HP_BASE_SIZE);
 
     manifest_parse(mh, le16toh(mh->size));
+}
+
+void release_manifest_blob(char *hpe)
+{
+    struct greybus_manifest_header *mh =
+        (struct greybus_manifest_header *)(hpe + HP_BASE_SIZE);
+
+    manifest_release(mh, le16toh(mh->size));
 }
 
 void enable_manifest(char *name, void *priv)

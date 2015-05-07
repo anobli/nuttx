@@ -5,8 +5,7 @@
 
 config APBRIDGE
 	bool "APBridge FW"
-	select GREYBUS_UTILS
-	default n
+    default n
 
 config APBRIDGE_UNIPRO
 	bool "Enable UniPro layer"

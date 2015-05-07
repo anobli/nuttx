@@ -106,7 +106,7 @@
 #define APBRIDGE_NINTERFACES         (1)        /* Number of interfaces in the configuration */
 #define APBRIDGE_NENDPOINTS          (3)        /* Number of endpoints in the interface  */
 
-#define APBRIDGE_NREQS               (1)
+#define APBRIDGE_NREQS               (2)
 #define APBRIDGE_REQ_SIZE            (4096)
 
 #define APBRIDGE_CONFIG_ATTR \

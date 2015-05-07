@@ -30,6 +30,7 @@
 #define __SVC_MSG_H
 
 #include <stdint.h>
+#include <arch/calypso/defines.h>
 
 typedef uint64_t __le64;
 typedef uint8_t __u8;
