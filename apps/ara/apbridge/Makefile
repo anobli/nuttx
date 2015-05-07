@@ -39,7 +39,7 @@ include $(APPDIR)/Make.defs
 
 ASRCS =
 CSRCS =
-MAINSRC = apbridge_unipro.c
+MAINSRC = apbridge.c
 ifeq ($(CONFIG_APBRIDGE_UNIPRO),y)
 MAINSRC += unipro.c
 else
