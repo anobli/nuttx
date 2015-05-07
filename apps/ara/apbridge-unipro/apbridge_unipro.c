@@ -33,38 +33,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <arch/tsb/gpio.h>
 #include <nuttx/usb/apb_es1.h>
 #include <apps/greybus-utils/utils.h>
 #include <apps/nsh.h>
-#include <arch/tsb/gpio.h>
-#include <arch/tsb/unipro.h>
 
-#ifdef CONFIG_BOARD_HAVE_DISPLAY
-#include <arch/board/dsi.h>
-#endif
-
-/*
- * TODO
- * Already defined in tsb_unipro.c
- */
-
-#define CPORTID_CDSI0    (16)
-#define CPORTID_CDSI1    (17)
-
-#define IID_LENGTH 7
+#include "apbridge_backend.h"
 
 static struct apbridge_dev_s *g_usbdev = NULL;
 static pthread_t g_svc_thread;
+static struct apbridge_backend apbridge_backend;
 
-static int usb_to_unipro(struct apbridge_dev_s *dev,
-                         void *payload, size_t size)
+static int usb_to_unipro(struct apbridge_dev_s *dev, void *buf, size_t len)
 {
-    struct gb_operation_hdr *hdr = payload;
+    struct gb_operation_hdr *hdr = buf;
     unsigned int cportid;
 
-    gb_dump(payload, size);
+    gb_dump(buf, len);
 
-    if (size < sizeof(*hdr))
+    if (len < sizeof(*hdr))
         return -EPROTO;
 
     /*
@@ -74,26 +61,33 @@ static int usb_to_unipro(struct apbridge_dev_s *dev,
     hdr->pad[0] = 0;
     hdr->pad[1] = 0;
 
-    return unipro_send(cportid, payload, size);
+    return apbridge_backend.usb_to_unipro(cportid, buf, len);
 }
 
-static int usb_to_svc(struct apbridge_dev_s *dev, void *payload, size_t size)
+static int usb_to_svc(struct apbridge_dev_s *dev, void *buf, size_t len)
 {
-    gb_dump(payload, size);
+    gb_dump(buf, len);
 
-    return svc_handle(payload, size);
+    return apbridge_backend.usb_to_svc(buf, len);
 }
 
-static int recv_from_unipro(unsigned int cportid, void *payload, size_t len)
+static int recv_from_svc(void *buf, size_t len)
 {
-    struct gb_operation_hdr *hdr = payload;
+    gb_dump(buf, len);
+
+    return apbridge_backend.svc_to_usb(g_usbdev, buf, len);
+}
+
+int recv_from_unipro(unsigned int cportid, const void *buf, size_t len)
+{
+    struct gb_operation_hdr *hdr = (void *)buf;
 
     /*
      * FIXME: Remove when UniPro driver provides the actual buffer length.
      */
-    len = gb_packet_size(payload);
+    len = gb_packet_size(buf);
 
-    gb_dump(payload, len);
+    gb_dump(buf, len);
 
     /* Store the cport id in the header pad bytes (if we have a header). */
     if (len >= sizeof(*hdr)) {
@@ -101,14 +95,15 @@ static int recv_from_unipro(unsigned int cportid, void *payload, size_t len)
         hdr->pad[1] = (cportid >> 8) & 0xff;
     }
 
-    return unipro_to_usb(g_usbdev, payload, len);
+    return apbridge_backend.unipro_to_usb(g_usbdev, cportid, buf, len);
 }
 
-static int recv_from_svc(void *buf, size_t length)
+static void manifest_enable(unsigned char *manifest_file, int manifest_number)
 {
-    gb_dump(buf, length);
+    char iid[IID_LENGTH];
 
-    return svc_to_usb(g_usbdev, buf, length);
+    snprintf(iid, IID_LENGTH, "IID-%d", manifest_number + 1);
+    enable_manifest(iid, NULL);
 }
 
 static void manifest_event(unsigned char *manifest_file, int manifest_number)
@@ -119,27 +114,20 @@ static void manifest_event(unsigned char *manifest_file, int manifest_number)
     send_svc_event(0, iid, manifest_file);
 }
 
-static struct unipro_driver unipro_driver = {
-    .name = "APBridge",
-    .rx_handler = recv_from_unipro,
-};
-
-static void *svc_sim_fn(void *p_data)
+static void *svc_sim_fn(void * p_data)
 {
-    struct apbridge_dev_s *priv = p_data;
-    int i;
+    struct apbridge_dev_s *priv;
+
+    priv = (struct apbridge_dev_s *)p_data;
 
     usb_wait(priv);
-    for (i = 0; i < CPORT_MAX; i++) {
-        /* This cports are already allocated for display and camera */
-        if (i == CPORTID_CDSI0 || i == CPORTID_CDSI1)
-            continue;
-        unipro_init_cport(i);
-        unipro_driver_register(&unipro_driver, i);
-    }
+    foreach_manifest(manifest_enable);
+    apbridge_backend_init();
     send_svc_handshake();
     send_ap_id(0);
+
     foreach_manifest(manifest_event);
+
     return NULL;
 }
 
@@ -148,8 +136,8 @@ static int svc_sim_init(struct apbridge_dev_s *priv)
     int ret;
 
     g_usbdev = priv;
-    ret = pthread_create(&g_svc_thread, NULL, svc_sim_fn,
-                         (pthread_addr_t)priv);
+    ret = pthread_create (&g_svc_thread, NULL, svc_sim_fn,
+                        (pthread_addr_t)priv);
     return ret;
 }
 
@@ -167,6 +155,7 @@ int bridge_main(int argc, char *argv[])
 #endif
 
     svc_register(recv_from_svc);
+    apbridge_backend_register(&apbridge_backend);
     usbdev_apbinitialize(&usb_driver);
 
 #ifdef CONFIG_EXAMPLES_NSH
