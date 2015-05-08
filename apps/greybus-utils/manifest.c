@@ -237,6 +237,7 @@ bool _manifest_parse(void *data, size_t size, int release)
                      GREYBUS_VERSION_MAJOR, GREYBUS_VERSION_MINOR);
             return false;
         }
+    }
 
     /* OK, find all the descriptors */
     desc = (struct greybus_descriptor *)(header + 1);
