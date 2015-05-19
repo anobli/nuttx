@@ -63,6 +63,8 @@
 #include <nuttx/logbuffer.h>
 #include <nuttx/gpio.h>
 
+#include <arch/tsb/unipro.h>
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -107,7 +109,9 @@
 #define APBRIDGE_NENDPOINTS          (3)        /* Number of endpoints in the interface  */
 
 #define APBRIDGE_NREQS               (1)
-#define APBRIDGE_REQ_SIZE            (4096)
+#define APBRIDGE_REQ_SIZE_IN         (1024)
+#define APBRIDGE_REQ_SIZE_MAX        (4096)
+#define APBRIDGE_REQ_ORDER_MAX       (4)
 
 #define APBRIDGE_CONFIG_ATTR \
   USB_CONFIG_ATTR_ONE | \
@@ -1092,7 +1096,8 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
 
     list_init(&priv->rdreq);
     prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKOUT],
-                     usbclass_rdcomplete, APBRIDGE_REQ_SIZE, APBRIDGE_NREQS);
+                     usbclass_rdcomplete, APBRIDGE_REQ_SIZE_IN,
+                     APBRIDGE_NREQS);
 
     list_init(&priv->wrreq);
     prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
