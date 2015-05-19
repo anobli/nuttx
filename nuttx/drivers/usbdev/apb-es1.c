@@ -192,7 +192,7 @@ struct apbridge_dev_s {
     struct list_head ctrlreq;       /* Control request */
     struct list_head intreq;
     struct list_head rdreq;
-    struct list_head wrreq;
+    struct list_head wrreq[APBRIDGE_REQ_ORDER_MAX];
 
     struct apbridge_usb_driver *driver;
 };
@@ -385,8 +385,21 @@ void usb_wait(struct apbridge_dev_s *priv)
     sem_wait(&priv->config_sem);
 }
 
-static struct list_head *epno_to_req_list(struct apbridge_dev_s *priv,
-                                          uint8_t epno)
+int size_to_order(size_t len)
+{
+    int i;
+    size_t len_min = 4096 >> (APBRIDGE_REQ_ORDER_MAX - 1);
+    for (i = 0; i < APBRIDGE_REQ_ORDER_MAX; i++) {
+        if (len <= len_min)
+            return i;
+        len_min <<= 1;
+    }
+    return i;
+}
+
+static struct list_head *get_req_list(struct apbridge_dev_s *priv,
+                                      uint8_t epno,
+                                      size_t len)
 {
     switch(epno) {
     case 0:
@@ -394,7 +407,25 @@ static struct list_head *epno_to_req_list(struct apbridge_dev_s *priv,
     case CONFIG_APBRIDGE_EPINTIN:
         return &priv->intreq;
     case CONFIG_APBRIDGE_EPBULKIN:
-        return &priv->wrreq;
+        return &priv->wrreq[size_to_order(len)];
+    case CONFIG_APBRIDGE_EPBULKOUT:
+        return &priv->rdreq;
+    }
+    return NULL;
+}
+
+static struct list_head *epno_to_req_list(struct apbridge_dev_s *priv,
+                                          uint8_t epno, int *n)
+{
+    *n = 1;
+    switch(epno) {
+    case 0:
+        return &priv->ctrlreq;
+    case CONFIG_APBRIDGE_EPINTIN:
+        return &priv->intreq;
+    case CONFIG_APBRIDGE_EPBULKIN:
+        *n = APBRIDGE_REQ_ORDER_MAX;
+        return &priv->wrreq[0];
     case CONFIG_APBRIDGE_EPBULKOUT:
         return &priv->rdreq;
     }
@@ -433,7 +464,7 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
     struct usbdev_ep_s *ep;
     struct usbdev_req_s *req;
 
-    list = epno_to_req_list(priv, epno);
+    list = get_req_list(priv, epno, len);
     if (!list)
         return -EINVAL;
 
@@ -466,7 +497,7 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
 int unipro_to_usb(struct apbridge_dev_s *priv, const void *payload,
                   size_t len)
 {
-    if (len > APBRIDGE_REQ_SIZE)
+    if (len > APBRIDGE_REQ_SIZE_MAX)
         return -EINVAL;
 
     return _to_usb(priv, CONFIG_APBRIDGE_EPBULKIN, payload, len);
@@ -937,7 +968,7 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
 #endif
 
     priv = (struct apbridge_dev_s *) ep->priv;
-    list = epno_to_req_list(priv, USB_EPNO(ep->eplog));
+    list = get_req_list(priv, USB_EPNO(ep->eplog), req->len);
     put_request(list, req);
 
     switch (req->result) {
@@ -1005,11 +1036,13 @@ static void prealloc_request(struct usbdev_ep_s *ep,
     int i;
     struct usbdev_req_s *req;
     struct apbridge_req_s *reqcontainer;
-    struct list_head *list = epno_to_req_list(ep->priv, USB_EPNO(ep->eplog));
+    struct list_head *list;
 
     DEBUGASSERT(ep);
-    DEBUGASSERT(list);
     DEBUGASSERT(callback);
+
+    list = get_req_list(ep->priv, USB_EPNO(ep->eplog), size);
+    DEBUGASSERT(list);
 
     for (i = 0; i < n; i++) {
         reqcontainer = malloc(sizeof(struct apbridge_req_s *));
@@ -1030,6 +1063,8 @@ static void prealloc_request(struct usbdev_ep_s *ep,
 
 static void free_preallocated_request(struct usbdev_ep_s *ep)
 {
+    int i;
+    int n;
     struct list_head *iter, *iter_next;
     struct usbdev_req_s *req;
     struct apbridge_req_s *reqcontainer;
@@ -1037,15 +1072,17 @@ static void free_preallocated_request(struct usbdev_ep_s *ep)
 
     if (!ep)
         return;
-    list = epno_to_req_list(ep->priv, USB_EPNO(ep->eplog));
+    list = epno_to_req_list(ep->priv, USB_EPNO(ep->eplog), &n);
     DEBUGASSERT(list);
 
-    list_foreach_safe(list, iter, iter_next) {
-        reqcontainer = list_entry(iter, struct apbridge_req_s, list);
-        req = reqcontainer->req;
-        usbclass_freereq(ep, req);
-        free(reqcontainer);
-        list_del(iter);
+    for (i = 0; i < n; i++) {
+        list_foreach_safe(&list[i], iter, iter_next) {
+            reqcontainer = list_entry(iter, struct apbridge_req_s, list);
+            req = reqcontainer->req;
+            usbclass_freereq(ep, req);
+            free(reqcontainer);
+            list_del(iter);
+        }
     }
 }
 
@@ -1063,7 +1100,10 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
     struct apbridge_dev_s *priv = ((struct apbridge_driver_s *)driver)->dev;
     struct list_head *list;
     int ret;
+    int len;
     int i;
+    int j;
+    int n;
 
     usbtrace(TRACE_CLASSBIND, 0);
 
@@ -1099,19 +1139,25 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
                      usbclass_rdcomplete, APBRIDGE_REQ_SIZE_IN,
                      APBRIDGE_NREQS);
 
-    list_init(&priv->wrreq);
-    prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
-                     usbclass_wrcomplete, APBRIDGE_REQ_SIZE, APBRIDGE_NREQS);
+    len = APBRIDGE_REQ_SIZE_MAX >> (APBRIDGE_REQ_ORDER_MAX - 1);
+    for (i = 0; i < APBRIDGE_REQ_ORDER_MAX; i++) {
+        list_init(&priv->wrreq[i]);
+        prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
+                         usbclass_wrcomplete, len << i,
+                         APBRIDGE_NREQS);
+     }
 
     /* Report if we are selfpowered */
 
     DEV_SETSELFPOWERED(dev);
 
     for (i = 0; i < APBRIDGE_MAX_ENDPOINTS; i++) {
-        list = epno_to_req_list(priv, i);
-        if (list_is_empty(list)) {
-            ret = -ENOMEM;
-            goto error;
+        list = epno_to_req_list(priv, i, &n);
+        for (j = 0; j < n; j++) {
+            if (list_is_empty(&list[j])) {
+                ret = -ENOMEM;
+                goto error;
+            }
         }
     }
 
