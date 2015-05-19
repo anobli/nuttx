@@ -210,35 +210,62 @@ static void *gb_pending_message_worker(void *data)
 int greybus_rx_handler(unsigned int cport, void *data, size_t size)
 {
     irqstate_t flags;
-    struct gb_operation *op;
+    static int append = 0;
+    static int offset = 0;
+    static int gb_len;
+    static struct gb_operation *op;
     struct gb_operation_hdr *hdr = data;
     struct gb_operation_handler *op_handler;
 
-    if (cport >= CPORT_MAX || !data)
-        return -EINVAL;
+    if (!append) {
+        if (cport >= CPORT_MAX || !data)
+            return -EINVAL;
 
-    if (!g_cport[cport].driver || !g_cport[cport].driver->op_handlers)
-        return 0;
+        if (!g_cport[cport].driver || !g_cport[cport].driver->op_handlers)
+            return 0;
 
-    if (sizeof(*hdr) > size || hdr->size > size || sizeof(*hdr) > hdr->size)
-        return -EINVAL; /* Dropping garbage request */
+        if (sizeof(*hdr) > size || sizeof(*hdr) > hdr->size)
+            return -EINVAL; /* Dropping garbage request */
 
-    op_handler = find_operation_handler(hdr->type, cport);
-    if (op_handler && op_handler->fast_handler) {
-        op_handler->fast_handler(cport, data);
-        return 0;
+        gb_len = hdr->size;
+
+        op_handler = find_operation_handler(hdr->type, cport);
+        if (op_handler && op_handler->fast_handler) {
+            op_handler->fast_handler(cport, data);
+            return 0;
+        }
+
+        op = gb_operation_create(cport, 0, hdr->size - sizeof(*hdr));
+        if (!op)
+            return -ENOMEM;
+
+        if (hdr->size > size) {
+            size = size;
+            append = 1;
+            gb_len -= size;
+            offset += size;
+        } else {
+            append = 0;
+        }
+        memcpy(op->request_buffer, data, hdr->size);
+    } else {
+        if (gb_len <= size) {
+            memcpy(op->request_buffer + offset, data, gb_len);
+            append = 0;
+            offset = 0;
+        } else {
+            memcpy(op->request_buffer + offset, data, size);
+            offset += size;
+            gb_len -= size;
+        }
     }
 
-    op = gb_operation_create(cport, 0, hdr->size - sizeof(*hdr));
-    if (!op)
-        return -ENOMEM;
-
-    memcpy(op->request_buffer, data, hdr->size);
-
-    flags = irqsave(); // useless if IRQ's priorities are correct
-    list_add(&g_cport[cport].rx_fifo, &op->list);
-    sem_post(&g_cport[cport].rx_fifo_lock);
-    irqrestore(flags);
+    if (append == 0) {
+        flags = irqsave(); // useless if IRQ's priorities are correct
+        list_add(&g_cport[cport].rx_fifo, &op->list);
+        sem_post(&g_cport[cport].rx_fifo_lock);
+        irqrestore(flags);
+    }
 
     return 0;
 }
