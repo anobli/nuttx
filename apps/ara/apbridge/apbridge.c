@@ -37,6 +37,7 @@
 #include <apps/greybus-utils/utils.h>
 #include <apps/nsh.h>
 #include <arch/tsb/gpio.h>
+#include <arch/tsb/unipro.h>
 
 #ifdef CONFIG_BOARD_HAVE_DISPLAY
 #include <arch/board/dsi.h>
@@ -53,7 +54,9 @@ static struct apbridge_backend apbridge_backend;
 static int usb_to_unipro(struct apbridge_dev_s *dev, void *buf, size_t len)
 {
     struct gb_operation_hdr *hdr = buf;
-    unsigned int cportid;
+    static unsigned int cportid = CPORT_MAX;
+    static size_t gb_len = 0;
+    int ret;
 
     gb_dump(buf, len);
 
@@ -63,11 +66,21 @@ static int usb_to_unipro(struct apbridge_dev_s *dev, void *buf, size_t len)
     /*
      * Retreive and clear the cport id stored in the header pad bytes.
      */
-    cportid = hdr->pad[1] << 8 | hdr->pad[0];
-    hdr->pad[0] = 0;
-    hdr->pad[1] = 0;
+    if (cportid == CPORT_MAX) {
+        cportid = hdr->pad[1] << 8 | hdr->pad[0];
+        hdr->pad[0] = 0;
+        hdr->pad[1] = 0;
+        gb_len = gb_packet_size(buf);
+    }
 
-    return apbridge_backend.usb_to_unipro(cportid, buf, len);
+    ret = apbridge_backend.usb_to_unipro(cportid, buf, len);
+    gb_len -= len;
+
+    if (gb_len == 0) {
+        cportid = CPORT_MAX;
+    } else {
+    }
+    return ret;
 }
 
 static int usb_to_svc(struct apbridge_dev_s *dev, void *buf, size_t len)
