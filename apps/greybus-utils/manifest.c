@@ -48,6 +48,9 @@ extern void gb_vibrator_register(int cport);
 struct greybus {
     struct list_head cports;
     struct greybus_driver *drv;
+
+    /* Preserved manifest data for control protocol */
+    char *hpe;
 };
 
 struct greybus g_greybus = {
@@ -354,7 +357,13 @@ void enable_manifest(char *name, void *priv, int device_id)
         int iid = get_interface_id(name);
         if (iid > 0) {
             gb_info("%s interface inserted\n", name);
-            free(hpe);
+
+	    /* Preserve manifest for gpbridge, control protocol needs it */
+            if (priv)
+                free(hpe);
+            else
+                g_greybus.hpe = hpe;
+
         } else {
             gb_error("invalid interface ID, no hotplug plug event sent\n");
         }
@@ -366,4 +375,26 @@ void enable_manifest(char *name, void *priv, int device_id)
 struct list_head *get_manifest_cports(void)
 {
     return &g_greybus.cports;
+}
+
+void *get_manifest(void)
+{
+    return g_greybus.hpe + HP_BASE_SIZE;
+}
+
+int get_manifest_size(void)
+{
+    struct greybus_manifest_header *mh =
+        (struct greybus_manifest_header *)(g_greybus.hpe + HP_BASE_SIZE);
+
+    if (!g_greybus.hpe)
+        return 0;
+
+    return le16toh(mh->size);
+}
+
+void free_manifest(void)
+{
+    free(g_greybus.hpe);
+    g_greybus.hpe = 0;
 }
