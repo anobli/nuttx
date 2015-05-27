@@ -201,7 +201,7 @@ static int identify_descriptor(struct greybus_descriptor *desc, size_t size,
                 cport->id = desc->cport.id;
                 cport->protocol = desc->cport.protocol_id;
                 cport->device_id = g_device_id;
-                gb_debug("cport_id = %d\n", cport->id);
+                gb_info("cport_id = %d\n", cport->device_id);
             } else {
                 free_cport(desc->cport.id);
             }
@@ -244,6 +244,7 @@ bool _manifest_parse(void *data, size_t size, int release)
 
         /* Make sure the size is right */
         manifest_size = le16toh(header->size);
+	gb_info("parse manifest: size: %d:%d\n", size, manifest_size);
         if (manifest_size != size) {
             gb_error("manifest size mismatch %zu != %hu\n", size,
                      manifest_size);
@@ -324,6 +325,8 @@ void *get_manifest_blob(void *data)
 
     memcpy(&size, data, 2);
 
+    gb_info("get_manifest_blob: size: %d\n", size);
+
     if (!(mh = malloc(size))) {
         gb_error("failed to allocate manifest buffer\n");
         return NULL;
@@ -387,6 +390,8 @@ void *get_manifest(void)
 int get_manifest_size(void)
 {
     struct greybus_manifest_header *mh = g_greybus.manifest;
+
+    gb_info("get-manifest-size:%d\n", le16toh(mh->size));
 
     if (!mh)
         return 0;

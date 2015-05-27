@@ -31,12 +31,15 @@
 #include <string.h>
 #include <nuttx/greybus/greybus.h>
 #include <apps/greybus-utils/manifest.h>
+#include <apps/greybus-utils/debug.h>
 
 #include "control-gb.h"
 
 static uint8_t gb_control_protocol_version(struct gb_operation *operation)
 {
     struct gb_control_proto_version_response *response;
+
+    gb_info("gb_control_protocol_version\n");
 
     response = gb_operation_alloc_response(operation, sizeof(*response));
     if (!response)
@@ -57,6 +60,7 @@ static uint8_t gb_control_get_manifest_size(struct gb_operation *operation)
 {
     struct gb_control_get_manifest_size_response *response;
 
+    gb_info("gb_control_get_manifest_size\n");
     response = gb_operation_alloc_response(operation, sizeof(*response));
     if (!response)
         return GB_OP_NO_MEMORY;
@@ -72,6 +76,7 @@ static uint8_t gb_control_get_manifest(struct gb_operation *operation)
     struct greybus_manifest_header *mh;
     int size = get_manifest_size();
 
+    gb_info("gb_control_get_manifest\n");
     response = gb_operation_alloc_response(operation, size);
     if (!response)
         return GB_OP_NO_MEMORY;
@@ -92,6 +97,7 @@ static uint8_t gb_control_connected(struct gb_operation *operation)
 //    struct gb_control_connected_request *request =
 //        gb_operation_get_request_payload(operation);
 
+    gb_info("gb_control_connected\n");
     // TODO
     //
     // Inform gpb that the cport is connected now.
@@ -104,6 +110,7 @@ static uint8_t gb_control_disconnected(struct gb_operation *operation)
 //    struct gb_control_connected_request *request =
 //        gb_operation_get_request_payload(operation);
 
+    gb_info("gb_control_disconnected\n");
     // TODO
     //
     // Inform gpb that the cport is disconnected now.
@@ -127,5 +134,6 @@ struct gb_driver control_driver = {
 
 void gb_control_register(int cport)
 {
+    gb_info("gb_control_register\n");
     gb_register_driver(cport, &control_driver);
 }
