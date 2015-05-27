@@ -85,14 +85,16 @@ struct svc_interface_device_id {
 #define DEV_ID_GPB1              (4)
 #define DEV_ID_GPB2              (5)
 #define DEV_ID_SPRING6           (8)
+#define DEMO_CONTROL_APB1_CPORT (2)
+#define DEMO_CONTROL_APB2_CPORT (2)
 #define DEMO_GPIO_APB1_CPORT     (0)
 #define DEMO_GPIO_APB2_CPORT     (5)
 #define DEMO_I2C_APB1_CPORT      (1)
 #define DEMO_I2C_APB2_CPORT      (4)
 #define DEMO_DSI_APB1_CPORT      (16)
 #define DEMO_DSI_APB2_CPORT      (16)
-#define DEMO_VIBRATOR_APB1_CPORT (2)
-#define DEMO_VIBRATOR_APB2_CPORT (3)
+#define DEMO_VIBRATOR_APB1_CPORT (3)
+#define DEMO_VIBRATOR_APB2_CPORT (4)
 
 /* Interface name to deviceID mapping table */
 static struct svc_interface_device_id devid[] = {
