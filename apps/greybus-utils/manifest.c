@@ -89,6 +89,7 @@ static void free_cport(int cportid)
     }
 }
 
+#ifdef CONFIG_GREYBUS
 void enable_cports(void)
 {
     struct list_head *iter;
@@ -135,6 +136,7 @@ void enable_cports(void)
 #endif
     }
 }
+#endif
 
 /*
  * Validate the given descriptor.  Its reported size must fit within
