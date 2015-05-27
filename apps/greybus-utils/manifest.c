@@ -50,7 +50,9 @@ struct greybus {
     struct greybus_driver *drv;
 };
 
-struct greybus g_greybus;
+struct greybus g_greybus = {
+    .cports = { &g_greybus.cports, &g_greybus.cports}
+};
 
 struct manifest_file manifest_files[] = { MANIFEST };
 int g_device_id;
@@ -87,6 +89,7 @@ static void free_cport(int cportid)
     }
 }
 
+#ifdef CONFIG_GREYBUS
 void enable_cports(void)
 {
     struct list_head *iter;
@@ -133,6 +136,7 @@ void enable_cports(void)
 #endif
     }
 }
+#endif
 
 /*
  * Validate the given descriptor.  Its reported size must fit within
