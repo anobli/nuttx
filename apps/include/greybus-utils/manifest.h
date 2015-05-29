@@ -41,6 +41,7 @@ void foreach_manifest(void (manifest_handler)(unsigned char *manifest_file, int 
 void enable_cports(void);
 void parse_manifest_blob(char *hpe);
 void enable_manifest(char *name, void *priv);
+struct list_head *get_manifest_cports(void);
 
 #endif
 
