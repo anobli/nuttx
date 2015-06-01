@@ -60,12 +60,45 @@ static struct unipro_driver unipro_driver = {
     .rx_handler = recv_from_unipro,
 };
 
+#define IID_LENGTH 7
+static void manifest_enable(unsigned char *manifest_file,
+                            int device_id, int manifest_number)
+{
+    char iid[IID_LENGTH];
+
+    snprintf(iid, IID_LENGTH, "IID-%d", manifest_number + 1);
+    enable_manifest(iid, manifest_file, device_id);
+}
+
+static void unipro_init_wait(void)
+{
+    struct list_head *cports;
+    int hd_cport_max;
+    int hd_cport;
+    int ret;
+
+    foreach_manifest(manifest_enable);
+    cports = get_manifest_cports();
+    hd_cport_max = list_count(cports);
+
+    for (hd_cport = 0; hd_cport < hd_cport_max; hd_cport++) {
+        do {
+            ret = unipro_init_cport(hd_cport);
+            if (ret)
+                usleep(200000);
+        } while (ret == -ENOTCONN);
+    }
+}
+
 static void unipro_backend_init(void)
 {
     int i;
 
     /* unipro_init() will initialize any non-display, non-camera CPorts */
     unipro_init();
+
+    /* wait until all required cport are connected */
+    unipro_init_wait();
 
     /* Now register a driver for those CPorts */
     for (i = 0; i < CPORT_MAX; i++) {
