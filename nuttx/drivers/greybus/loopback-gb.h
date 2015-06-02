@@ -36,12 +36,7 @@
 #define	GB_LOOPBACK_TYPE_PROTOCOL_VERSION		0x01
 #define	GB_LOOPBACK_TYPE_PING				0x02
 #define	GB_LOOPBACK_TYPE_TRANSFER			0x03
-
-struct gb_loopback {
-    struct list_head list;
-    unsigned int cportid;
-    int error;
-};
+#define	GB_LOOPBACK_TYPE_SINK				0x04
 
 /* version request has no payload */
 struct gb_loopback_proto_version_response {
@@ -55,6 +50,12 @@ struct gb_loopback_transfer_request {
 };
 
 struct gb_loopback_transfer_response {
+	__u8    data[0];
+};
+
+struct gb_loopback_sync_transfer {
+	__le32	len;
+	__le32	chksum;
 	__u8    data[0];
 };
 
