@@ -166,8 +166,9 @@
 
 /* Vender specific control requests *******************************************/
 
-#define APBRIDGE_RWREQUEST_SVC       (0x01)
-#define APBRIDGE_RWREQUEST_LOG     (0x02)
+#define APBRIDGE_RWREQUEST_SVC          (0x01)
+#define APBRIDGE_RWREQUEST_LOG          (0x02)
+#define APBRIDGE_RWREQUEST_EP_MAPPING   (0x03)
 
 /* Misc Macros ****************************************************************/
 
@@ -231,10 +232,17 @@ struct apbridge_alloc_s {
     struct apbridge_driver_s drvr;
 };
 
+struct cport_to_ep {
+    uint16_t cport_id;
+	uint8_t endpoint_in;
+	uint8_t endpoint_out;
+};
+
 enum ctrlreq_state {
     USB_REQ,
     GREYBUS_SVC_REQ,
     GREYBUS_LOG,
+    GREYBUS_EP_MAPPING,
 };
 
 /****************************************************************************
@@ -557,6 +565,14 @@ int svc_to_usb(struct apbridge_dev_s *priv, const void *payload, size_t len)
         return -EINVAL;
 
     return _to_usb(priv, CONFIG_APBRIDGE_EPINTIN, payload, len);
+}
+
+void map_cport_to_ep(struct apbridge_dev_s *priv,
+                     struct cport_to_ep *cport_to_ep)
+{
+    unsigned int cportid = cport_to_ep->cport_id;
+    priv->cport_to_epin_n[cportid] = cport_to_ep->endpoint_in;
+    priv->epout_to_cport_n[(cport_to_ep->endpoint_out - 2) >> 1] = cportid;
 }
 
 /****************************************************************************
@@ -943,6 +959,8 @@ static void usbclass_ep0incomplete(struct usbdev_ep_s *ep,
     ctrlreq = (struct apbridge_req_s *)req->priv;
     if ((int) ctrlreq->priv == GREYBUS_SVC_REQ)
         drv->usb_to_svc(NULL, req->buf, req->len);
+    if ((int) ctrlreq->priv == GREYBUS_EP_MAPPING)
+        map_cport_to_ep(priv, (struct cport_to_ep *)req->buf);
     put_request(&priv->ctrlreq, req);
 }
 
@@ -1536,6 +1554,14 @@ static int usbclass_setup(struct usbdevclass_driver_s *driver,
 #else
                         ret = 0;
 #endif
+                    }
+                } else if (ctrl->req == APBRIDGE_RWREQUEST_EP_MAPPING) {
+                    if ((ctrl->type & USB_DIR_IN) != 0) {
+                        *(uint32_t *) req->buf = 0xdeadbeef;
+                        ret = 4;
+                    } else {
+                        ctrreq->priv = (void *)GREYBUS_EP_MAPPING;
+                        ret = len;
                     }
                 } else {
                     usbtrace(TRACE_CLSERROR
