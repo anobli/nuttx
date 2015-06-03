@@ -55,7 +55,11 @@
 #define SNPSID_OTG2 0x4F542000
 #define SNPSID_OTG3 0x4F543000
 
+#if defined(TSB_CHIP_REV_ES2)
+#define DWC_NENDPOINTS        (16)
+#else
 #define DWC_NENDPOINTS        (5)
+#endif
 #define EP0                   (0)
 
 #define CONTAINER_OF(ptr, type, mbr) ({                      \
