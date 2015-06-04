@@ -51,7 +51,7 @@ struct greybus {
     struct greybus_driver *drv;
 
     /* Preserved manifest data for control protocol */
-    char *hpe;
+    void *manifest;
 };
 
 struct greybus g_greybus = {
@@ -314,61 +314,57 @@ static int get_interface_id(char *fname)
     return iid;
 }
 
-char *get_manifest_blob(void *data)
+void *get_manifest_blob(void *data)
 {
     uint16_t size;
-    char *hpb;
     struct greybus_manifest_header *mh;
 
     if (!data)
         data = manifest_files[0].bin;
 
     memcpy(&size, data, 2);
-    if (!(hpb = malloc(HP_BASE_SIZE + size))) {
-        gb_error("failed to allocate hotplug buffer\n");
-        goto out;
+
+    if (!(mh = malloc(size))) {
+        gb_error("failed to allocate manifest buffer\n");
+        return NULL;
     }
 
-    mh = (struct greybus_manifest_header *)(hpb + HP_BASE_SIZE);
     memcpy(mh, data, size);
 
- out:
-    return hpb;
+    return mh;
 }
 
-void parse_manifest_blob(char *hpe)
+void parse_manifest_blob(void *manifest)
 {
-    struct greybus_manifest_header *mh =
-        (struct greybus_manifest_header *)(hpe + HP_BASE_SIZE);
+    struct greybus_manifest_header *mh = manifest;
 
     manifest_parse(mh, le16toh(mh->size));
 }
 
-void release_manifest_blob(char *hpe)
+void release_manifest_blob(void *manifest)
 {
-    struct greybus_manifest_header *mh =
-        (struct greybus_manifest_header *)(hpe + HP_BASE_SIZE);
+    struct greybus_manifest_header *mh = manifest;
 
     manifest_release(mh, le16toh(mh->size));
 }
 
 void enable_manifest(char *name, void *priv, int device_id)
 {
-    char *hpe;
+    void *manifest;
 
-    hpe = get_manifest_blob(priv);
-    if (hpe) {
+    manifest = get_manifest_blob(priv);
+    if (manifest) {
         g_device_id = device_id;
-        parse_manifest_blob(hpe);
+        parse_manifest_blob(manifest);
         int iid = get_interface_id(name);
         if (iid > 0) {
             gb_info("%s interface inserted\n", name);
 
 	    /* Preserve manifest for gpbridge, control protocol needs it */
             if (priv)
-                free(hpe);
+                free(manifest);
             else
-                g_greybus.hpe = hpe;
+                g_greybus.manifest = manifest;
 
         } else {
             gb_error("invalid interface ID, no hotplug plug event sent\n");
@@ -385,15 +381,14 @@ struct list_head *get_manifest_cports(void)
 
 void *get_manifest(void)
 {
-    return g_greybus.hpe + HP_BASE_SIZE;
+    return g_greybus.manifest;
 }
 
 int get_manifest_size(void)
 {
-    struct greybus_manifest_header *mh =
-        (struct greybus_manifest_header *)(g_greybus.hpe + HP_BASE_SIZE);
+    struct greybus_manifest_header *mh = g_greybus.manifest;
 
-    if (!g_greybus.hpe)
+    if (!mh)
         return 0;
 
     return le16toh(mh->size);
@@ -401,6 +396,6 @@ int get_manifest_size(void)
 
 void free_manifest(void)
 {
-    free(g_greybus.hpe);
-    g_greybus.hpe = 0;
+    free(g_greybus.manifest);
+    g_greybus.manifest = 0;
 }
