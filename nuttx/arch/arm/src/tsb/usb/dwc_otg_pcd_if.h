@@ -205,6 +205,29 @@ extern int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 				uint8_t * buf, dwc_dma_t dma_buf,
 				uint32_t buflen, int zero, void *req_handle,
 				int atomic_alloc);
+/** Queue a segmented data transfer request on the endpoint referenced by
+ * ep_handle. After the transfer is completes, the complete callback will be
+ * called with the request status.
+ *
+ * @param pcd The PCD
+ * @param ep_handle The handle of the endpoint
+ * @param buf Array of buffer for the data
+ * @param dma_buf Array of DMA buffer for the data
+ * @param count Number of buffer in array
+ * @param buflen The length of the data transfer
+ * @param zero Specifies whether to send zero length last packet.
+ * @param req_handle Set this handle to any value to use to reference this
+ * request in the ep_dequeue function or from the complete callback
+ * @param atomic_alloc If driver need to perform atomic allocations
+ * for internal data structures.
+ *
+ * Returns -DWC_E_INVALID if invalid parameters were passed.
+ * Returns -DWC_E_SHUTDOWN if any other error ocurred.
+ * Returns 0 on success. */
+
+int dwc_otg_pcd_ep_queue_segmented(dwc_otg_pcd_t * pcd, void *ep_handle,
+				uint8_t * buf, dwc_otg_pcd_segmented_buffer_t *seg,
+				uint32_t buflen, int zero, void *req_handle, int atomic_alloc);
 #ifdef DWC_UTE_PER_IO
 /**
  *

@@ -2377,9 +2377,9 @@ void dwc_otg_pcd_free_segmented(dwc_otg_pcd_segmented_buffer_t *seg)
     DWC_FREE(seg);
 }
 
-int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
-			 uint8_t * buf, dwc_dma_t dma_buf, uint32_t buflen,
-			 int zero, void *req_handle, int atomic_alloc)
+int dwc_otg_pcd_ep_queue_segmented(dwc_otg_pcd_t * pcd, void *ep_handle,
+			 uint8_t * buf, dwc_otg_pcd_segmented_buffer_t *seg,
+			 uint32_t buflen, int zero, void *req_handle, int atomic_alloc)
 {
 	dwc_irqflags_t flags;
 	dwc_otg_pcd_request_t *req;
@@ -2410,12 +2410,19 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 	}
 
 	req->buf = buf;
-	req->dma = dma_buf;
+	if (seg->count == 1) {
+		req->dma = seg->addr[0];
+	} else {
+	    /* TODO add some assert to test if we can use segmented memory
+	     * ie ep != 0, dma_desc_enable == 1,
+	     */
+		req->dma = 0;
+	}
 	req->length = buflen;
 	req->sent_zlp = zero;
 	req->priv = req_handle;
 	req->dw_align_buf = NULL;
-	if ((dma_buf & 0x3) && GET_CORE_IF(pcd)->dma_enable
+	if (seg->count == 1 && (seg->addr[0] & 0x3) && GET_CORE_IF(pcd)->dma_enable
 	    && !GET_CORE_IF(pcd)->dma_desc_enable)
 		req->dw_align_buf = DWC_DMA_ALLOC(buflen,
 						  &req->dw_align_buf_dma);
@@ -2502,7 +2509,7 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 				return -DWC_E_SHUTDOWN;
 			}
 
-			ep->dwc_ep.dma_addr = dma_buf;
+			ep->dwc_ep.dma_addr = seg->addr[0];
 			ep->dwc_ep.start_xfer_buff = buf;
 			ep->dwc_ep.xfer_buff = buf;
 			ep->dwc_ep.xfer_len = buflen;
@@ -2547,7 +2554,7 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 					ep->dwc_ep.xfer_buff =
 					    req->dw_align_buf;
 				} else {
-					ep->dwc_ep.dma_addr = dma_buf;
+					ep->dwc_ep.dma_addr = seg->addr[0];
 					ep->dwc_ep.start_xfer_buff = buf;
 					ep->dwc_ep.xfer_buff = buf;
 				}
@@ -2620,6 +2627,18 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 	DWC_SPINUNLOCK_IRQRESTORE(pcd->lock, flags);
 
 	return 0;
+}
+
+int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
+			 uint8_t * buf, dwc_dma_t dma_buf, uint32_t buflen,
+			 int zero, void *req_handle, int atomic_alloc)
+{
+    dwc_dma_t _dma_buf[] = {dma_buf};
+    uint32_t _buflen[] = {buflen};
+    dwc_otg_pcd_segmented_buffer_t seg = { _dma_buf, _buflen, 1 };
+	return dwc_otg_pcd_ep_queue_segmented(pcd, ep_handle, buf,
+										  &seg, buflen, zero,
+										  req_handle, atomic_alloc);
 }
 
 int dwc_otg_pcd_ep_dequeue(dwc_otg_pcd_t * pcd, void *ep_handle,
