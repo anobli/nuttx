@@ -123,6 +123,13 @@ struct dwc_iso_xreq_port {
 	struct dwc_iso_pkt_desc_port *per_io_frame_descs;
 };
 #endif
+
+typedef struct dwc_otg_pcd_segmented_buffer {
+	dwc_dma_t *addr;
+	uint32_t *length;
+	uint32_t count;
+} dwc_otg_pcd_segmented_buffer_t;
+
 /** DWC_otg request structure.
  * This structure is a list of requests.
  */
