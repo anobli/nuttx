@@ -3650,6 +3650,82 @@ void dwc_otg_ep_deactivate(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
  * @param core_if Programming view of DWC_otg controller.
  * @param ep The EP to start the transfer on.
  */
+void init_dma_desc_chain_segmented(dwc_otg_core_if_t * core_if,
+								   dwc_ep_t * ep,
+								   dwc_dma_t *addr,
+								   uint32_t *length,
+								   uint32_t count)
+{
+	dwc_otg_dev_dma_desc_t *dma_desc;
+	uint32_t xfer_est;
+	int i;
+	unsigned maxxfer_local, total_len;
+
+	maxxfer_local = ep->maxpacket;
+	total_len = ep->total_len;
+
+	ep->desc_cnt = count;
+
+	if (ep->desc_cnt > MAX_DMA_DESC_CNT)
+		ep->desc_cnt = MAX_DMA_DESC_CNT;
+
+	dma_desc = ep->desc_addr;
+	if (maxxfer_local == ep->maxpacket) {
+		if ((total_len % maxxfer_local) &&
+		    (total_len / maxxfer_local < MAX_DMA_DESC_CNT)) {
+			xfer_est = (ep->desc_cnt - 1) * maxxfer_local +
+			    (total_len % maxxfer_local);
+		} else
+			xfer_est = ep->desc_cnt * maxxfer_local;
+	} else
+		xfer_est = total_len;
+	for (i = 0; i < ep->desc_cnt; ++i) {
+		/** DMA Descriptor Setup */
+		if (xfer_est > maxxfer_local) {
+			dma_desc->status.b.bs = BS_HOST_BUSY;
+			dma_desc->status.b.l = 0;
+			dma_desc->status.b.ioc = 0;
+			dma_desc->status.b.sp = 0;
+			dma_desc->status.b.bytes = length[i];
+			dma_desc->buf = addr[i];
+			dma_desc->status.b.sts = 0;
+			dma_desc->status.b.bs = BS_HOST_READY;
+
+			xfer_est -= maxxfer_local;
+		} else {
+			dma_desc->status.b.bs = BS_HOST_BUSY;
+			dma_desc->status.b.l = 1;
+			dma_desc->status.b.ioc = 1;
+			if (ep->is_in) {
+				dma_desc->status.b.sp =
+				    (xfer_est %
+				     ep->maxpacket) ? 1 : ((ep->
+							    sent_zlp) ? 1 : 0);
+
+				dma_desc->status.b.bytes = length[i];
+			} else {
+				if (maxxfer_local == ep->maxpacket)
+					dma_desc->status.b.bytes = xfer_est;
+				else
+					dma_desc->status.b.bytes =
+						xfer_est + ((4 - (xfer_est & 0x3)) & 0x3);
+			}
+
+			dma_desc->buf = addr[i];
+			dma_desc->status.b.sts = 0;
+			dma_desc->status.b.bs = BS_HOST_READY;
+		}
+		dma_desc++;
+	}
+}
+
+
+/**
+ * This function initializes dma descriptor chain.
+ *
+ * @param core_if Programming view of DWC_otg controller.
+ * @param ep The EP to start the transfer on.
+ */
 static void init_dma_desc_chain(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
 {
 	dwc_otg_dev_dma_desc_t *dma_desc;
@@ -3867,7 +3943,8 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
 							ep->descs_dma_addr);
 				} else {
 #endif
-					init_dma_desc_chain(core_if, ep);
+					if (!ep->desc_cnt)
+						init_dma_desc_chain(core_if, ep);
 				/** DIEPDMAn Register write */
 					DWC_WRITE_REG32(&in_regs->diepdma,
 							ep->dma_desc_addr);
@@ -3993,6 +4070,7 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
 					/** This is used for interrupt out transfers*/
 					if (!ep->xfer_len)
 						ep->xfer_len = ep->total_len;
+
 					init_dma_desc_chain(core_if, ep);
 
 					if (core_if->core_params->dev_out_nak) {

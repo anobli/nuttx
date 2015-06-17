@@ -2598,6 +2598,14 @@ int dwc_otg_pcd_ep_queue_segmented(dwc_otg_pcd_t * pcd, void *ep_handle,
 #ifdef DWC_UTE_CFI
 			}
 #endif
+			ep->dwc_ep.desc_cnt = 0;
+			if (seg->count > 1) {
+				init_dma_desc_chain_segmented(GET_CORE_IF(pcd),
+							      &ep->dwc_ep,
+							      seg->addr,
+							      seg->length,
+							      seg->count);
+			}
 			dwc_otg_ep_start_transfer(GET_CORE_IF(pcd),
 						  &ep->dwc_ep);
 		}
