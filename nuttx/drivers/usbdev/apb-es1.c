@@ -444,15 +444,28 @@ static struct list_head *epno_to_req_list(struct apbridge_dev_s *priv,
     return NULL;
 }
 
+
 static unsigned int get_cportid(const struct gb_operation_hdr *hdr)
 {
     return hdr->pad[1] << 8 | hdr->pad[0];
 }
 
-static struct usbdev_req_s *get_request(struct list_head *list)
+static struct usbdev_req_s *get_request(struct usbdev_ep_s *ep, size_t len)
 {
+    struct list_head *list;
     struct usbdev_req_s *req;
     struct apbridge_req_s *reqcontainer;
+    struct apbridge_dev_s *priv;
+
+    priv = (struct apbridge_dev_s *) ep->priv;
+    list = epno_to_req_list(priv, USB_EPNO(ep->eplog));
+    if (!list) {
+        return NULL;
+    }
+
+    if(list_is_empty(list)) {
+        prealloc_request(ep, len);
+    }
 
     if (list_is_empty(list))
         return NULL;
@@ -548,8 +561,8 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
     if (!list)
         return -EINVAL;
 
-    req = get_request(list);
     ep = priv->ep[epno & USB_EPNO_MASK];
+    req = get_request(ep, APBRIDGE_REQ_SIZE);
     if (!req) {
         return apbridge_queue(priv, ep, payload, len);
     }
@@ -1453,7 +1466,7 @@ static int usbclass_setup(struct usbdevclass_driver_s *driver,
         return -ENODEV;
     }
 #endif
-    req = get_request(&priv->ctrlreq);
+    req = get_request(priv->ep[0], 0);
     ctrreq = (struct apbridge_req_s *)req->priv;
     ctrreq->priv = (void *)USB_REQ;
 
