@@ -267,6 +267,8 @@ static struct usbdev_req_s *usbclass_allocreq(struct usbdev_ep_s *ep,
                                               uint16_t len);
 static void usbclass_freereq(struct usbdev_ep_s *ep,
                              struct usbdev_req_s *req);
+static int prealloc_request(struct usbdev_ep_s *ep, int size);
+static void free_preallocated_request(struct usbdev_ep_s *ep);
 
 /* Configuration ***********************************************************/
 
@@ -1172,33 +1174,44 @@ static void freeep(struct apbridge_dev_s *priv, uint8_t epno)
     priv->ep[epno] = NULL;
 }
 
-static void prealloc_request(struct usbdev_ep_s *ep,
-                             usb_callback callback, int size, int n)
+static int prealloc_request(struct usbdev_ep_s *ep, int size)
 {
-    int i;
+    usb_callback callback;
     struct usbdev_req_s *req;
     struct apbridge_req_s *reqcontainer;
     struct list_head *list = epno_to_req_list(ep->priv, USB_EPNO(ep->eplog));
 
     DEBUGASSERT(ep);
     DEBUGASSERT(list);
-    DEBUGASSERT(callback);
 
-    for (i = 0; i < n; i++) {
-        reqcontainer = malloc(sizeof(struct apbridge_req_s));
-        if (!reqcontainer)
-            return;
-        req = usbclass_allocreq(ep, size);
-        if (!req) {
-            free(reqcontainer);
-            return;
-        }
-        req->len = size;
-        req->priv = reqcontainer;
-        req->callback = callback;
-        reqcontainer->req = req;
-        list_add(list, &reqcontainer->list);
+    if (USB_EPNO(ep->eplog) == 0) {
+        callback = usbclass_ep0incomplete;
+        size = APBRIDGE_MXDESCLEN;
+    } else if (USB_EPNO(ep->eplog) % 2 == 1) {
+        callback = usbclass_wrcomplete;
+    } else {
+        callback = usbclass_rdcomplete;
     }
+
+    if (size == 0) {
+        size = APBRIDGE_REQ_SIZE;
+    }
+
+    reqcontainer = malloc(sizeof(struct apbridge_req_s));
+    if (!reqcontainer)
+        return -ENOMEM;
+    req = usbclass_allocreq(ep, size);
+    if (!req) {
+        free(reqcontainer);
+        return -ENOMEM;
+    }
+    req->len = size;
+    req->priv = reqcontainer;
+    req->callback = callback;
+    reqcontainer->req = req;
+    list_add(list, &reqcontainer->list);
+
+    return OK;
 }
 
 static void free_preallocated_request(struct usbdev_ep_s *ep)
@@ -1251,7 +1264,6 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
                          struct usbdev_s *dev)
 {
     struct apbridge_dev_s *priv = ((struct apbridge_driver_s *)driver)->dev;
-    struct list_head *list;
     int ret;
     int i;
 
@@ -1279,34 +1291,19 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
      */
 
     list_init(&priv->ctrlreq);
-    prealloc_request(priv->ep[0], usbclass_ep0incomplete,
-                     APBRIDGE_MXDESCLEN, 1);
-
     list_init(&priv->intreq);
-    prealloc_request(priv->ep[CONFIG_APBRIDGE_EPINTIN], usbclass_wrcomplete,
-                     APBRIDGE_EPINTIN_MXPACKET, 1);
-
     list_init(&priv->rdreq);
-    prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKOUT],
-                     usbclass_rdcomplete, APBRIDGE_REQ_SIZE,
-                     APBRIDGE_NREQS * APBRIDGE_NBULKS);
-
     list_init(&priv->wrreq);
-    prealloc_request(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
-                     usbclass_wrcomplete, APBRIDGE_REQ_SIZE,
-                     APBRIDGE_NREQS * APBRIDGE_NBULKS);
+    for (i = 0; i < APBRIDGE_MAX_ENDPOINTS; i++) {
+        /* Preallocate one request for each endpoints */
+        ret = prealloc_request(priv->ep[i], 0);
+        if (ret < 0)
+            goto error;
+    }
 
     /* Report if we are selfpowered */
 
     DEV_SETSELFPOWERED(dev);
-
-    for (i = 0; i < APBRIDGE_MAX_ENDPOINTS; i++) {
-        list = epno_to_req_list(priv, i);
-        if (list_is_empty(list)) {
-            ret = -ENOMEM;
-            goto error;
-        }
-    }
 
     /* And pull-up the data line for the soft connect function */
 
