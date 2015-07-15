@@ -46,8 +46,21 @@ struct apbridge_usb_driver
 struct apbridge_req_s {
     struct list_head list;
     struct usbdev_req_s *req;   /* The contained request */
+    struct apbridge_req_s *next;
     void *priv;
 };
+
+static inline int apbridge_req_count(struct apbridge_req_s* reqcontainner)
+{
+    int i = 0;
+
+    while (reqcontainner) {
+        reqcontainner = reqcontainner->next;
+        i++;
+    }
+
+    return i;
+}
 
 int unipro_to_usb(struct apbridge_dev_s *dev, const void *payload, size_t size);
 int svc_to_usb(struct apbridge_dev_s *dev, const void *payload, size_t len);

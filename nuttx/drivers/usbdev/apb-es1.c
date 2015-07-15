@@ -1214,6 +1214,7 @@ static int prealloc_request(struct usbdev_ep_s *ep, int size)
     req->priv = reqcontainer;
     req->callback = callback;
     reqcontainer->req = req;
+    reqcontainer->next = NULL;
     list_add(list, &reqcontainer->list);
 
     return OK;
