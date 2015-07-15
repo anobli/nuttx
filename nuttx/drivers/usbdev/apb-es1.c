@@ -186,8 +186,7 @@
 struct apbridge_msg_s {
     struct list_head list;
     struct usbdev_ep_s *ep;
-    const void *buf;
-    size_t len;
+    struct apbridge_buffer_s *buf;
 };
 
 /* This structure describes the internal state of the driver */
@@ -478,7 +477,7 @@ static void put_request(struct list_head *list, struct usbdev_req_s *req)
 }
 
 static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
-                          const void *payload, size_t len)
+                          struct apbridge_buffer_s *buf)
 {
     irqstate_t flags;
     struct apbridge_msg_s *info;
@@ -489,8 +488,7 @@ static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
     }
 
     info->ep = ep;
-    info->buf = payload;
-    info->len = len;
+    info->buf = buf;
 
     flags = irqsave();
     list_add(&priv->msg_queue, &info->list);
@@ -517,17 +515,17 @@ static struct apbridge_msg_s *apbridge_dequeue(struct apbridge_dev_s *priv)
 }
 
 static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
-                          const void *payload, size_t len)
+                          struct apbridge_buffer_s *buf)
 {
     int ret;
     unsigned int cportid;
 
-    req->len = len;
-    memcpy(req->buf, payload, len);
+    req->len = buf->len;
+    memcpy(req->buf, buf->buf, buf->len);
 
     /* Unpause unipro only if the request come from unipro */
     if (USB_EPNO(ep->eplog) != CONFIG_APBRIDGE_EPINTIN) {
-        cportid = get_cportid(payload);
+        cportid = get_cportid(buf->buf);
         unipro_unpause_rx(cportid);
     }
 
@@ -543,7 +541,7 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
 }
 
 static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
-                   const void *payload, size_t len)
+                   struct apbridge_buffer_s *buf)
 {
     struct list_head *list;
     struct usbdev_ep_s *ep;
@@ -556,10 +554,10 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
     ep = priv->ep[epno & USB_EPNO_MASK];
     req = get_request(ep, APBRIDGE_REQ_SIZE);
     if (!req) {
-        return apbridge_queue(priv, ep, payload, len);
+        return apbridge_queue(priv, ep, buf);
     }
 
-    return _to_usb_submit(ep, req, payload, len);
+    return _to_usb_submit(ep, req, buf);
 }
 
 /**
@@ -575,6 +573,8 @@ int unipro_to_usb(struct apbridge_dev_s *priv, const void *payload,
 {
     uint8_t epno;
     unsigned int cportid;
+    struct gb_operation_hdr *hdr;
+    struct apbridge_buffer_s buf = {NULL, payload, len};
 
     if (len > APBRIDGE_REQ_SIZE)
         return -EINVAL;
@@ -582,7 +582,7 @@ int unipro_to_usb(struct apbridge_dev_s *priv, const void *payload,
     cportid = get_cportid(payload);
     epno = priv->cport_to_epin_n[cportid];
 
-    return _to_usb(priv, epno, payload, len);
+    return _to_usb(priv, epno, &buf);
 }
 
 int usb_release_buffer(struct apbridge_dev_s *priv, const void *buf)
@@ -628,10 +628,12 @@ int usb_release_buffer(struct apbridge_dev_s *priv, const void *buf)
 
 int svc_to_usb(struct apbridge_dev_s *priv, const void *payload, size_t len)
 {
+    struct apbridge_buffer_s buf = {NULL, payload, len};
+
     if (len > APBRIDGE_EPINTIN_MXPACKET)
         return -EINVAL;
 
-    return _to_usb(priv, CONFIG_APBRIDGE_EPINTIN, payload, len);
+    return _to_usb(priv, CONFIG_APBRIDGE_EPINTIN, &buf);
 }
 
 void map_cport_to_ep(struct apbridge_dev_s *priv,
@@ -1113,7 +1115,7 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
     priv = (struct apbridge_dev_s *) ep->priv;
     info = apbridge_dequeue(priv);
     if (info) {
-        _to_usb_submit(info->ep, req, info->buf, info->len);
+        _to_usb_submit(info->ep, req, info->buf);
         free(info);
     } else {
         list = epno_to_req_list(priv, USB_EPNO(ep->eplog));

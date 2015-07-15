@@ -50,6 +50,12 @@ struct apbridge_req_s {
     void *priv;
 };
 
+struct apbridge_buffer_s {
+    struct apbridge_buffer_s *next;
+    const void *buf;
+    size_t len;
+};
+
 static inline int apbridge_req_count(struct apbridge_req_s* reqcontainner)
 {
     int i = 0;
