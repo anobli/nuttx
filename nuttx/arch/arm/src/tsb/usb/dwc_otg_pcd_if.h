@@ -45,6 +45,9 @@
 struct dwc_otg_pcd;
 typedef struct dwc_otg_pcd dwc_otg_pcd_t;
 
+struct dwc_otg_pcd_segmented_buffer;
+typedef struct dwc_otg_pcd_segmented_buffer dwc_otg_pcd_segmented_buffer_t;
+
 /** Maxpacket size for EP0 */
 #define MAX_EP0_SIZE	64
 /** Maxpacket size for any EP */
@@ -356,6 +359,10 @@ extern uint32_t get_a_alt_hnp_support(dwc_otg_pcd_t * pcd);
 extern uint8_t *cfiw_ep_alloc_buffer(dwc_otg_pcd_t * pcd, void *pep,
 				     dwc_dma_t * addr, size_t buflen,
 				     int flags);
+
+extern dwc_otg_pcd_segmented_buffer_t *dwc_otg_pcd_alloc_segmented(int count,
+			 int atomic_alloc);
+extern void dwc_otg_pcd_free_segmented(dwc_otg_pcd_segmented_buffer_t *seg);
 
 /******************************************************************************/
 

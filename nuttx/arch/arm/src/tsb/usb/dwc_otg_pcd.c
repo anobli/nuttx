@@ -2330,6 +2330,53 @@ int dwc_otg_pcd_xiso_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 
 #endif
 /* END ifdef DWC_UTE_PER_IO ***************************************************/
+dwc_otg_pcd_segmented_buffer_t *dwc_otg_pcd_alloc_segmented(int count,
+			 int atomic_alloc)
+{
+	dwc_otg_pcd_segmented_buffer_t *seg;
+
+	if (atomic_alloc) {
+		seg = DWC_ALLOC_ATOMIC(sizeof(*seg));
+	} else {
+		seg = DWC_ALLOC(sizeof(*seg));
+	}
+
+	if (!seg) {
+	    goto error;
+    }
+
+	if (atomic_alloc) {
+		seg->addr = DWC_ALLOC_ATOMIC(sizeof(*seg->addr) * count);
+		seg->length = DWC_ALLOC_ATOMIC(sizeof(*seg->length) * count);
+	} else {
+		seg->addr = DWC_ALLOC(sizeof(*seg->addr) * count);
+		seg->length = DWC_ALLOC(sizeof(*seg->length) * count);
+	}
+
+	if (!seg->addr || !seg->length) {
+	    goto error;
+    }
+
+	seg->count = count;
+	return seg;
+
+error:
+    dwc_otg_pcd_free_segmented(seg);
+    return NULL;
+}
+
+void dwc_otg_pcd_free_segmented(dwc_otg_pcd_segmented_buffer_t *seg)
+{
+    if (!seg)
+        return;
+
+    if (seg->addr)
+        DWC_FREE(seg->addr);
+    if (seg->length)
+        DWC_FREE(seg->length);
+    DWC_FREE(seg);
+}
+
 int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 			 uint8_t * buf, dwc_dma_t dma_buf, uint32_t buflen,
 			 int zero, void *req_handle, int atomic_alloc)
