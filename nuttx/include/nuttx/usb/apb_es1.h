@@ -30,6 +30,7 @@
 #define _APB_ES1_H_
 
 #include <sys/types.h>
+#include <nuttx/list.h>
 
 struct apbridge_dev_s;
 
@@ -38,6 +39,14 @@ struct apbridge_usb_driver
   int (*usb_to_svc)(struct apbridge_dev_s *dev, void *payload, size_t size);
   int (*usb_to_unipro)(struct apbridge_dev_s *dev, void *payload, size_t size);
   int (*init)(struct apbridge_dev_s *dev);
+};
+
+/* Container to support a list of requests */
+
+struct apbridge_req_s {
+    struct list_head list;
+    struct usbdev_req_s *req;   /* The contained request */
+    void *priv;
 };
 
 int unipro_to_usb(struct apbridge_dev_s *dev, const void *payload, size_t size);

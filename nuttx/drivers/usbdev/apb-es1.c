@@ -183,14 +183,6 @@
  * Private Types
  ****************************************************************************/
 
-/* Container to support a list of requests */
-
-struct apbridge_req_s {
-    struct list_head list;
-    struct usbdev_req_s *req;   /* The contained request */
-    void *priv;
-};
-
 struct apbridge_msg_s {
     struct list_head list;
     struct usbdev_ep_s *ep;
