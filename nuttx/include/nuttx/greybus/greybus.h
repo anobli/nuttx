@@ -45,6 +45,7 @@ typedef void (*gb_operation_callback)(struct gb_operation *operation);
 typedef uint8_t (*gb_operation_handler_t)(struct gb_operation *operation);
 typedef void (*gb_operation_fast_handler_t)(unsigned int cport, void *data);
 
+#if !defined(CONFIG_GREYBUS_DEBUG)
 #define GB_HANDLER(t, h) \
     { \
         .type = t, \
@@ -56,11 +57,29 @@ typedef void (*gb_operation_fast_handler_t)(unsigned int cport, void *data);
         .type = t, \
         .fast_handler = h, \
     }
+#else
+#define GB_HANDLER(t, h) \
+    { \
+        .type = t, \
+        .handler = h, \
+        .name = #h, \
+    }
+
+#define GB_FAST_HANDLER(t, h) \
+    { \
+        .type = t, \
+        .fast_handler = h, \
+        .name = #h, \
+    }
+#endif
 
 struct gb_operation_handler {
     uint8_t type;
     gb_operation_handler_t handler;
     gb_operation_fast_handler_t fast_handler;
+#ifdef CONFIG_GREYBUS_DEBUG
+    const char *name;
+#endif
 };
 
 struct gb_transport_backend {
@@ -95,6 +114,9 @@ struct gb_driver {
 
     size_t stack_size;
     size_t op_handlers_count;
+#ifdef CONFIG_GREYBUS_DEBUG
+    const char *name;
+#endif
 };
 
 struct gb_operation_hdr {
@@ -137,7 +159,26 @@ static inline struct gb_operation *gb_operation_get_response_op(struct gb_operat
 
 int gb_init(struct gb_transport_backend *transport);
 int gb_unipro_init(void);
-int gb_register_driver(unsigned int cport, struct gb_driver *driver);
+int _gb_register_driver(unsigned int cport, struct gb_driver *driver);
+#if !defined(CONFIG_GREYBUS_DEBUG)
+#define gb_driver_name(driver)                  \
+    ("Unknown")
+#define gb_handler_name(handler)                \
+    ("Unknown")
+#define gb_register_driver(cport, driver)       \
+    _gb_register_driver(cport, driver)
+#else
+#define gb_driver_name(driver)                  \
+    ((driver)->name)
+#define gb_handler_name(handler)                \
+    ((handler)->name)
+#define gb_register_driver(cport, driver)       \
+    do {                                        \
+        if ((driver))                           \
+            (driver)->name = __FILE__;          \
+        _gb_register_driver(cport, driver);     \
+    } while (0)
+#endif
 
 int gb_listen(unsigned int cport);
 int gb_stop_listening(unsigned int cport);
