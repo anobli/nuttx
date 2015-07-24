@@ -36,6 +36,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#include <pthread.h>
 
 #include <arch/tsb/gpio.h>
 #include <arch/tsb/unipro.h>
@@ -84,8 +85,16 @@ int io_expander_init(struct i2c_dev_s **dev)
 }
 #endif
 
+static pthread_t enable_cports_thread;
+void *enable_cports_fn(void *data)
+{
+    enable_cports();
+    return NULL;
+}
+
 int bridge_main(int argc, char *argv[])
 {
+    int ret;
 #ifdef CONFIG_BOARD_HAVE_DISPLAY
     struct i2c_dev_s *dev;
 #endif
@@ -107,7 +116,11 @@ int bridge_main(int argc, char *argv[])
 
     enable_manifest("IID-1", NULL, 0);
     gb_unipro_init();
-    enable_cports();
+
+    ret = pthread_create(&enable_cports_thread, NULL, enable_cports_fn, NULL);
+    if (ret) {
+        printf("Can't start enable_cport! Greybus will not work!\n");
+    }
 
 #ifdef CONFIG_EXAMPLES_NSH
     printf("Calling NSH\n");
