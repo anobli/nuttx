@@ -51,6 +51,10 @@
 
 #include "tsb_scm.h"
 
+#ifdef CONFIG_ARA_APB_USB
+#include <nuttx/usb/apb_es1.h>
+#endif
+
 #define SNPSID_MASK 0xFFFFF000
 #define SNPSID_OTG2 0x4F542000
 #define SNPSID_OTG3 0x4F543000
@@ -196,6 +200,49 @@ void dwc_freereq(struct usbdev_ep_s *ep, struct usbdev_req_s *req)
  * Submit and cancel I/O requests
  */
 
+#ifdef CONFIG_ARA_APB_USB
+static int dwc_submit_segmented(dwc_otg_pcd_t *pcd,
+                         struct usbdev_ep_s *usb_ep,
+                         struct apbridge_req_s *reqcontainer,
+                         int zero)
+{
+    int i = 0;
+    int retval;
+    int count = apbridge_req_count(reqcontainer);
+    dwc_otg_pcd_segmented_buffer_t *seg;
+    struct usbdev_req_s *req;
+    struct usbdev_req_s *first_req = reqcontainer->req;
+
+    seg = dwc_otg_pcd_alloc_segmented(count, up_interrupt_context()? 1 : 0);
+    while (reqcontainer) {
+        req = reqcontainer->req;
+        seg->addr[i] = (uint32_t)req->buf;
+        seg->length[i] = req->len;
+        reqcontainer = reqcontainer->next;
+        i++;
+    }
+
+    retval = dwc_otg_pcd_ep_queue_segmented(pcd, usb_ep, req->buf,
+                                            seg, req->len, zero, first_req,
+                                            up_interrupt_context()? 1 : 0);
+
+    dwc_otg_pcd_free_segmented(seg);
+
+    return retval;
+}
+
+static int request_is_segmented(struct usbdev_req_s *req)
+{
+    struct apbridge_req_s *reqcontainer;
+    reqcontainer = (struct apbridge_req_s *)req->priv;
+    return reqcontainer->next != NULL;
+
+}
+#else
+#define request_is_segmented(req) (0)
+#define dwc_submit_segmented(pcd, ep, reqcontainer, zero) (0)
+#endif
+
 int dwc_submit(struct usbdev_ep_s *usb_ep, struct usbdev_req_s *req)
 {
     int zero;
@@ -213,11 +260,14 @@ int dwc_submit(struct usbdev_ep_s *usb_ep, struct usbdev_req_s *req)
     req->xfrd = 0;
 
     dma_addr = (dwc_dma_t) req->buf;
-
     zero = (req->flags & USBDEV_REQFLAGS_NULLPKT) ? 1 : 0;
-    retval = dwc_otg_pcd_ep_queue(pcd, usb_ep, req->buf, dma_addr,
-                                  req->len, zero, req,
-                                  up_interrupt_context()? 1 : 0);
+    if (request_is_segmented(req)) {
+        retval = dwc_submit_segmented(pcd, usb_ep, reqcontainer, zero);
+    } else {
+        retval = dwc_otg_pcd_ep_queue(pcd, usb_ep, req->buf, dma_addr,
+                                      req->len, zero, req,
+                                      up_interrupt_context()? 1 : 0);
+    }
     if (retval) {
         DWC_ERROR("%s, Can't queue request: ep = %p, req = %p\n",
                   __func__, usb_ep, req);
