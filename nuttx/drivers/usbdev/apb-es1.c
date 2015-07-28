@@ -476,6 +476,91 @@ static void put_request(struct list_head *list, struct usbdev_req_s *req)
     list_add(list, &reqcontainer->list);
 }
 
+static void request_link(struct usbdev_req_s *req1, struct usbdev_req_s *req2)
+{
+    struct apbridge_req_s *reqcontainer1;
+    struct apbridge_req_s *reqcontainer2 = NULL;
+
+    reqcontainer1 = (struct apbridge_req_s *)req1->priv;
+    if (req2) {
+        reqcontainer2 = (struct apbridge_req_s *)req2->priv;
+    }
+    reqcontainer1->next = reqcontainer2;
+}
+
+static void request_unlink(struct usbdev_req_s *req1)
+{
+    request_link(req1, NULL);
+}
+
+static struct usbdev_req_s *request_next(struct usbdev_req_s *req)
+{
+    struct apbridge_req_s *reqcontainer;
+
+    reqcontainer = (struct apbridge_req_s *)req->priv;
+    reqcontainer = reqcontainer->next;
+    if (reqcontainer) {
+        return reqcontainer->req;
+    }
+    return NULL;
+}
+
+static void put_requests(struct list_head *list, struct usbdev_req_s *req)
+{
+    int i = 0;
+    struct usbdev_req_s *next_req = NULL;
+
+    while (req) {
+        lowsyslog("put request %d\n", i++);
+        lowsyslog("request %p => %p\n", req, request_next(req));
+        next_req = request_next(req);
+        request_unlink(req);
+        put_request(list, req);
+        req = next_req;
+    }
+}
+
+static struct usbdev_req_s *get_requests(struct usbdev_ep_s *ep,
+                                         struct apbridge_buffer_s *buf)
+{
+    struct list_head *list;
+    struct apbridge_dev_s *priv;
+    struct usbdev_req_s *req;
+    struct usbdev_req_s *prev_req = NULL;
+    struct usbdev_req_s *first_req = NULL;
+
+    priv = (struct apbridge_dev_s *) ep->priv;
+    list = epno_to_req_list(priv, USB_EPNO(ep->eplog));
+
+    do {
+        req = get_request(ep, 0);
+        if (!req) {
+            break;
+        }
+        if (!first_req) {
+            first_req = req;
+        } else {
+            request_link(prev_req, req);
+        }
+        prev_req = req;
+        buf = buf->next;
+    } while (buf);
+
+    if (buf) {
+        req = first_req;
+        while (req) {
+            next_req = request_next(req);
+            request_unlink(req);
+            put_request(list, req);
+            req = next_req;
+        }
+        return NULL;
+    }
+
+    return first_req;
+}
+
+
 static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
                           struct apbridge_buffer_s *buf)
 {
@@ -519,19 +604,25 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
 {
     int ret;
     unsigned int cportid;
+    struct usbdev_req_s *first_req = req;
+    struct apbridge_buffer_s *first_buf = buf;
 
-    req->len = buf->len;
-    memcpy(req->buf, buf->buf, buf->len);
+    do {
+        req->len = buf->len;
+        memcpy(req->buf, buf->buf, buf->len);
+        buf = buf->next;
+        req = request_next(req);
+    } while (buf);
 
     /* Unpause unipro only if the request come from unipro */
     if (USB_EPNO(ep->eplog) != CONFIG_APBRIDGE_EPINTIN) {
-        cportid = get_cportid(buf->buf);
+        cportid = get_cportid(first_buf->buf);
         unipro_unpause_rx(cportid);
     }
 
     /* Then submit the request to the endpoint */
 
-    ret = EP_SUBMIT(ep, req);
+    ret = EP_SUBMIT(ep, first_req);
     if (ret != OK) {
         usbtrace(TRACE_CLSERROR(USBSER_TRACEERR_SUBMITFAIL), (uint16_t) - ret);
         return ret;
@@ -552,7 +643,7 @@ static int _to_usb(struct apbridge_dev_s *priv, uint8_t epno,
         return -EINVAL;
 
     ep = priv->ep[epno & USB_EPNO_MASK];
-    req = get_request(ep, APBRIDGE_REQ_SIZE);
+    req = get_requests(ep, buf);
     if (!req) {
         return apbridge_queue(priv, ep, buf);
     }
@@ -1113,13 +1204,13 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
 #endif
 
     priv = (struct apbridge_dev_s *) ep->priv;
+    list = epno_to_req_list(priv, USB_EPNO(ep->eplog));
+    put_requests(list, req);
+
     info = apbridge_dequeue(priv);
     if (info) {
-        _to_usb_submit(info->ep, req, info->buf);
+        _to_usb(priv, USB_EPNO(info->ep->eplog), info->buf);
         free(info);
-    } else {
-        list = epno_to_req_list(priv, USB_EPNO(ep->eplog));
-        put_request(list, req);
     }
 
     switch (req->result) {
