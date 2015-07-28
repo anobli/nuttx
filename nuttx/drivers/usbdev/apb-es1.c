@@ -545,21 +545,56 @@ static struct usbdev_req_s *get_requests(struct usbdev_ep_s *ep,
         prev_req = req;
         buf = buf->next;
     } while (buf);
-
+lowsyslog("request %p => %p\n", first_req, request_next(first_req));
     if (buf) {
-        req = first_req;
-        while (req) {
-            next_req = request_next(req);
-            request_unlink(req);
-            put_request(list, req);
-            req = next_req;
-        }
+        put_requests(list, req);
         return NULL;
     }
 
     return first_req;
 }
 
+void apbridge_buffer_free(struct apbridge_buffer_s *buf)
+{
+    struct apbridge_buffer_s *next_buf;
+
+    while(buf) {
+        next_buf = buf->next;
+        free(buf);
+        buf = next_buf;
+    }
+}
+
+struct apbridge_buffer_s *
+apbridge_buffer_alloc(struct apbridge_buffer_s *old_buf)
+{
+    struct apbridge_buffer_s *buf;
+    struct apbridge_buffer_s *new_buf = NULL;
+    struct apbridge_buffer_s *prev_buf = NULL;
+
+    do {
+        buf = malloc(sizeof(*buf));
+        if (!buf) {
+            break;
+        }
+        if (!new_buf) {
+            new_buf = buf;
+        } else {
+            prev_buf->next = buf;
+        }
+        buf->buf = old_buf->buf;
+        buf->len = old_buf->len;
+        buf->next = NULL;
+        prev_buf = buf;
+        old_buf = old_buf->next;
+    } while(old_buf);
+
+    if (old_buf) {
+        apbridge_buffer_free(new_buf);
+        return NULL;
+    }
+    return new_buf;
+}
 
 static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
                           struct apbridge_buffer_s *buf)
@@ -573,7 +608,11 @@ static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
     }
 
     info->ep = ep;
-    info->buf = buf;
+    info->buf = apbridge_buffer_alloc(buf);
+    if (!info->buf) {
+        free(info);
+        return -ENOMEM;
+    }
 
     flags = irqsave();
     list_add(&priv->msg_queue, &info->list);
@@ -1210,6 +1249,7 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
     info = apbridge_dequeue(priv);
     if (info) {
         _to_usb(priv, USB_EPNO(info->ep->eplog), info->buf);
+        apbridge_buffer_free(info->buf);
         free(info);
     }
 
