@@ -163,13 +163,14 @@ static int setup_routes_from_manifest(void)
         hd_cport++;
     }
 
+#if 0
     conn[hd_cport].device_id0 = device_id0;
     conn[hd_cport].cport_id0  = DSI_APB1_CPORT;
     conn[hd_cport].device_id1 = DEV_ID_APB2;
     conn[hd_cport].cport_id1  = DSI_APB2_CPORT;
     conn[hd_cport].flags      = CPORT_FLAGS_CSD_N | CPORT_FLAGS_CSV_N;
     hd_cport++;
-
+#endif 
     return hd_cport;
 }
 

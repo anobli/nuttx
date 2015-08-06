@@ -47,6 +47,7 @@
 #include "tsb_unipro_es2.h"
 #include "tsb_es2_mphy_fixups.h"
 
+#define UNIPRO_DEBUG
 #ifdef UNIPRO_DEBUG
 #define DBG_UNIPRO(fmt, ...) lldbg(fmt, __VA_ARGS__)
 #else
@@ -132,7 +133,7 @@ static struct cport cporttable[] = {
 };
 
 #define GPBRIDGE_CPORT_MAX 16 // number of CPorts available on the GPBridges
-static inline unsigned int cport_max(void) {
+unsigned int cport_max(void) {
     /*
      * Reduce the run-time CPort count to what's available on the
      * GPBridges, unless we can determine that we're running on an
@@ -824,6 +825,7 @@ void unipro_init(void)
         return;
     }
 
+    lowsyslog("init %d cports\n", cport_max());
     for (i = 0; i < cport_max(); i++) {
         cport = cport_handle(i);
         if (cport) {

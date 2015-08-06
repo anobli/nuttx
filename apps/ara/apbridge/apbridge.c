@@ -105,6 +105,7 @@ int recv_from_unipro(unsigned int cportid, void *buf, size_t len)
      */
     len = gb_packet_size(buf);
 
+    lowsyslog("cport %d\n", cportid);
     gb_dump(buf, len);
 
     /* Store the cport id in the header pad bytes (if we have a header). */
