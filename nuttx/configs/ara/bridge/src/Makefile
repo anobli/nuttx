@@ -65,6 +65,7 @@ CSRCS		+= usb3813.c
 endif
 
 ifeq ($(CONFIG_APBRIDGEA),y)
+  CSRCS += common_gadget.c
   CSRCS += apbridgea_gadget.c
 endif
 
