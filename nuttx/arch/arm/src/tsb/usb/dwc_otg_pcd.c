@@ -957,6 +957,7 @@ static void dwc_otg_pcd_init_ep(dwc_otg_pcd_t * pcd, dwc_otg_pcd_ep_t * pcd_ep,
 	pcd_ep->dwc_ep.desc_addr = 0;
 	pcd_ep->dwc_ep.dma_desc_addr = 0;
 	DWC_CIRCLEQ_INIT(&pcd_ep->queue);
+	DWC_CIRCLEQ_INIT(&pcd_ep->ring);
 }
 
 /**
@@ -991,6 +992,7 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 			dwc_otg_pcd_init_ep(pcd, ep, 1 /* IN */ , i);
 
 			DWC_CIRCLEQ_INIT(&ep->queue);
+			DWC_CIRCLEQ_INIT(&ep->ring);
 		}
 		hwcfg1 >>= 2;
 	}
@@ -1008,6 +1010,7 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 			 */
 			dwc_otg_pcd_init_ep(pcd, ep, 0 /* OUT */ , i);
 			DWC_CIRCLEQ_INIT(&ep->queue);
+			DWC_CIRCLEQ_INIT(&ep->ring);
 		}
 		hwcfg1 >>= 2;
 	}
@@ -2330,6 +2333,98 @@ int dwc_otg_pcd_xiso_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 
 #endif
 /* END ifdef DWC_UTE_PER_IO ***************************************************/
+
+dwc_otg_pcd_request_t *dwc_otg_pcd_get_queue_req(dwc_otg_pcd_ep_t *ep,
+                                                 dwc_dma_t dma)
+{
+	dwc_otg_pcd_request_t *req;
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {	
+		if (req->dma == dma)
+			return req;
+	}
+	return NULL;
+}
+
+static void init_ring_dma_desc_chain(dwc_otg_core_if_t * core_if,
+			   dwc_otg_pcd_ep_t *ep);
+
+/* This method assume we are pushing in queue always the same requests
+ * (bulk out require preallocated request then we are re queueing them)
+ */
+void dwc_otg_pcd_queue_req(dwc_otg_core_if_t * core_if,
+			   dwc_otg_pcd_ep_t *ep,
+			   dwc_otg_pcd_request_t *new_req)
+{
+	int i = 0;
+	dwc_otg_pcd_request_t *req;
+	dwc_otg_dev_dma_desc_t *dma_desc;
+
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, queue_entry) {
+		/* TODO do some sanity check
+		 * we need to be sure the used and completed,
+		 * and the dma doesn't use it anymore
+		 */
+		
+		if (req->buf == new_req->buf) {
+			dma_desc = get_ring_dma_desc_chain(&ep->dwc_ep, i);
+			init_ring_dma_desc(&ep->dwc_ep, dma_desc,
+					   req->buf, req->length);
+			return;
+		}
+		i++;
+	}
+	/* The request is new */
+	DWC_CIRCLEQ_INSERT_TAIL(&ep->ring, new_req, queue_entry);
+#if 0
+	/* TODO disable or pause ep before to update */
+	// init_ring_dma_desc_chain(core_if, ep);
+#else
+	/* Nothing else to do
+	 * the request is also in queue
+	 * on next interrupt endpoint, 
+	 * cm3 will start a transfer and then call 
+	 * init_ring_dma_desc_chain and then use this new req
+	 */
+#endif	
+}
+
+static void init_ring_dma_desc_chain(dwc_otg_core_if_t * core_if,
+			   dwc_otg_pcd_ep_t *ep)
+{
+	int i = 0;
+	unsigned int desc_cnt;
+	dwc_otg_pcd_request_t *req;
+	dwc_otg_dev_dma_desc_t *dma_desc;
+	
+	desc_cnt = 0;
+//	lowsyslog("init_ring_dma_desc_chain\n");
+	if (!DWC_CIRCLEQ_EMPTY(&ep->ring)) {
+		/* count request available in ring buffer */
+		DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {
+			desc_cnt++;
+		}
+	}
+//	lowsyslog("%d desc to prog\n", desc_cnt);
+
+	if (desc_cnt > MAX_DMA_DESC_CNT)
+		desc_cnt = MAX_DMA_DESC_CNT;
+
+    ep->dwc_ep.desc_cnt = desc_cnt;
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {
+		/** DMA Descriptor Setup */
+		dma_desc = get_ring_dma_desc_chain(&ep->dwc_ep, i);
+		init_ring_dma_desc(&ep->dwc_ep, dma_desc, req->dma, req->length);
+		req->dma_desc = dma_desc;
+		i++;
+	}
+}
+
+void dwc_otg_pcd_dequeue_req(dwc_otg_core_if_t * core_if,
+			     dwc_ep_t * ep, dwc_otg_pcd_request_t *new_req)
+{
+}
+
+
 int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 			 uint8_t * buf, dwc_dma_t dma_buf, uint32_t buflen,
 			 int zero, void *req_handle, int atomic_alloc)
