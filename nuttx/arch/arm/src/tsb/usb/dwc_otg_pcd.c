@@ -125,7 +125,8 @@ void dwc_otg_request_done(dwc_otg_pcd_ep_t * ep, dwc_otg_pcd_request_t * req,
 	}
 
 	ep->stopped = stopped;
-	DWC_FREE(req);
+	if (!DWC_CIRCLEQ_ENTRY_IN_QUEUE(req, ring_entry))
+    	DWC_FREE(req);
 }
 
 /**
@@ -2359,22 +2360,27 @@ void dwc_otg_pcd_queue_req(dwc_otg_core_if_t * core_if,
 	dwc_otg_pcd_request_t *req;
 	dwc_otg_dev_dma_desc_t *dma_desc;
 
-	DWC_CIRCLEQ_FOREACH(req, &ep->ring, queue_entry) {
+//    lowsyslog("search a req and init it\n");
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {
 		/* TODO do some sanity check
 		 * we need to be sure the used and completed,
 		 * and the dma doesn't use it anymore
 		 */
-		
-		if (req->buf == new_req->buf) {
+		if (req->dma == new_req->dma) {
 			dma_desc = get_ring_dma_desc_chain(&ep->dwc_ep, i);
 			init_ring_dma_desc(&ep->dwc_ep, dma_desc,
-					   req->buf, req->length);
+					   req->dma, req->length);
+//		    lowsyslog("find one!\n");
 			return;
 		}
 		i++;
 	}
+//	lowsyslog("new req: add it to queue\n");
 	/* The request is new */
-	DWC_CIRCLEQ_INSERT_TAIL(&ep->ring, new_req, queue_entry);
+	DWC_CIRCLEQ_INIT_ENTRY(req, ring_entry);
+	DWC_CIRCLEQ_INSERT_TAIL(&ep->ring, new_req, ring_entry);
+	/* Very dangerous */
+	init_ring_dma_desc_chain(core_if, ep);
 #if 0
 	/* TODO disable or pause ep before to update */
 	// init_ring_dma_desc_chain(core_if, ep);
@@ -2440,11 +2446,16 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 		return -DWC_E_INVALID;
 	}
 
-	if (atomic_alloc) {
-		req = DWC_ALLOC_ATOMIC(sizeof(*req));
-	} else {
-		req = DWC_ALLOC(sizeof(*req));
-	}
+//    lowsyslog("Try to get req from ring buf\n");
+    req = dwc_otg_pcd_get_queue_req(ep, dma_buf);
+//    lowsyslog("req = %p\n", req);
+    if (!req) {
+	    if (atomic_alloc) {
+		    req = DWC_ALLOC_ATOMIC(sizeof(*req));
+	    } else {
+		    req = DWC_ALLOC(sizeof(*req));
+	    }
+    }
 
 	if (!req) {
 		return -DWC_E_NO_MEMORY;
@@ -2639,6 +2650,9 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 #ifdef DWC_UTE_CFI
 			}
 #endif
+			dwc_otg_pcd_queue_req(GET_CORE_IF(pcd), ep, req);
+			ep->dwc_ep.desc_cnt = 0;
+			init_ring_dma_desc_chain(GET_CORE_IF(pcd), ep);
 			dwc_otg_ep_start_transfer(GET_CORE_IF(pcd),
 						  &ep->dwc_ep);
 		}
@@ -2646,6 +2660,13 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 
 	if (req != 0) {
 		++pcd->request_pending;
+		/* TODO don't queue bulk out req but update
+		 * dma desc to use it without cm3.
+		 * since a transfer is on going, we may have to pause it
+		 */
+		if (!(DWC_CIRCLEQ_EMPTY(&ep->queue) && !ep->stopped)) {
+			dwc_otg_pcd_queue_req(GET_CORE_IF(pcd), ep, req);
+		}
 		DWC_CIRCLEQ_INSERT_TAIL(&ep->queue, req, queue_entry);
 		if (ep->dwc_ep.is_in && ep->stopped
 		    && !(GET_CORE_IF(pcd)->dma_enable)) {
