@@ -36,6 +36,8 @@
 static int dummy_usb_to_unipro(unsigned int cportid, void *buf, size_t len,
                                unipro_send_completion_t callback, void *priv)
 {
+    recv_from_unipro(cportid, buf, len);
+    usb_release_buffer(NULL, buf);
     return 0;
 }
 
