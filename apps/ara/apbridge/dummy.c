@@ -46,7 +46,8 @@ static int dummy_usb_to_svc(void *buf, size_t len)
 
 static void dummy_backend_init(void)
 {
-
+    /* required to keep the bridge powered by svc */
+    unipro_init();
 }
 
 void apbridge_backend_register(struct apbridge_backend *apbridge_backend)
