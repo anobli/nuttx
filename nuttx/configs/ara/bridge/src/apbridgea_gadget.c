@@ -116,7 +116,7 @@
 #define BULKEP_TO_N(ep) \
   ((USB_EPNO(ep->eplog) - CONFIG_APBRIDGE_EPBULKOUT) >> 1)
 
-#define APBRIDGE_NREQS               (1)
+#define APBRIDGE_NREQS               (2)
 #define APBRIDGE_REQ_SIZE            (2048)
 
 #define APBRIDGE_CONFIG_ATTR \
