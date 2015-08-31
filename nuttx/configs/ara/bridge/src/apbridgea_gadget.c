@@ -1029,7 +1029,7 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
     DEV_SETSELFPOWERED(dev);
 
     /* And pull-up the data line for the soft connect function */
-
+sleep(1);
     DEV_CONNECT(dev);
 
     return OK;
