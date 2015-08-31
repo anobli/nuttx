@@ -3283,11 +3283,15 @@ static void dwc_otg_pcd_handle_noniso_bna(dwc_otg_pcd_ep_t * ep)
 		dma_desc = dwc_ep->desc_addr;
 	}
 	
-
-	for (i = start; i < dwc_ep->desc_cnt; ++i, ++dma_desc) {
-		sts.d32 = dma_desc->status.d32;
-		sts.b.bs = BS_HOST_READY;
-		dma_desc->status.d32 = sts.d32;
+	for (i = 0; i < dwc_ep->desc_cnt; ++i, ++dma_desc) {
+		if (dwc_ep->is_in) {
+			sts.d32 = dma_desc->status.d32;
+			sts.b.bs = BS_HOST_READY;
+			dma_desc->status.d32 = sts.d32;
+		} else {
+			if (dma_desc->status.b.bs == 2)
+				complete_ep(ep);
+		}
 	}
 
 	if (dwc_ep->is_in == 0) {
