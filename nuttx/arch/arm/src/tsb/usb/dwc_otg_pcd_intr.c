@@ -4752,7 +4752,16 @@ exit_xfercompl:
 					if (core_if->dma_desc_enable && dwc_ep->type == DWC_OTG_EP_TYPE_ISOC) {
 						handle_xfercompl_iso_ddma(core_if->dev_if, ep);
 					} else {
-						complete_ep(ep);
+						if (ep->dwc_ep.is_in) {
+							complete_ep(ep);
+						} else {
+							int i;
+							for (i = 0; i < ep->dwc_ep.desc_cnt; i++) {
+								if (ep->dwc_ep.desc_addr[i].status.b.bs == 2) {
+									complete_ep(ep);
+								}
+							}
+						}
 					}
 				}
 
