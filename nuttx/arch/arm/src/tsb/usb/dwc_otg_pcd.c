@@ -2368,8 +2368,9 @@ void dwc_otg_pcd_queue_req(dwc_otg_core_if_t * core_if,
 		 */
 		if (req->dma == new_req->dma) {
 			dma_desc = get_ring_dma_desc_chain(&ep->dwc_ep, i);
-			init_ring_dma_desc(&ep->dwc_ep, dma_desc,
-					   req->dma, req->length);
+			if (!ep->dwc_ep.is_in)
+				init_ring_dma_desc(&ep->dwc_ep, dma_desc,
+						   req->dma, req->length);
 //		    lowsyslog("find one!\n");
 			return;
 		}
@@ -2380,7 +2381,8 @@ void dwc_otg_pcd_queue_req(dwc_otg_core_if_t * core_if,
 	DWC_CIRCLEQ_INIT_ENTRY(req, ring_entry);
 	DWC_CIRCLEQ_INSERT_TAIL(&ep->ring, new_req, ring_entry);
 	/* Very dangerous */
-	init_ring_dma_desc_chain(core_if, ep);
+	if (!ep->dwc_ep.is_in)
+		init_ring_dma_desc_chain(core_if, ep);
 #if 0
 	/* TODO disable or pause ep before to update */
 	// init_ring_dma_desc_chain(core_if, ep);
@@ -2652,7 +2654,8 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 #endif
 			dwc_otg_pcd_queue_req(GET_CORE_IF(pcd), ep, req);
 			ep->dwc_ep.desc_cnt = 0;
-			init_ring_dma_desc_chain(GET_CORE_IF(pcd), ep);
+			if (!ep->dwc_ep.is_in)
+				init_ring_dma_desc_chain(GET_CORE_IF(pcd), ep);
 			dwc_otg_ep_start_transfer(GET_CORE_IF(pcd),
 						  &ep->dwc_ep);
 		}
