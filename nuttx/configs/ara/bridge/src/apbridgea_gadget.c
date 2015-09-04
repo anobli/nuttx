@@ -377,7 +377,7 @@ void usb_wait(struct apbridge_dev_s *priv)
 
 static unsigned int get_cportid(const struct gb_operation_hdr *hdr)
 {
-    return hdr->pad[1] << 8 | hdr->pad[0];
+    return hdr->pad[0];
 }
 
 static int apbridge_queue(struct apbridge_dev_s *priv, struct usbdev_ep_s *ep,
@@ -464,7 +464,6 @@ int unipro_to_usb(struct apbridge_dev_s *priv, unsigned int cportid,
 
     /* Store the cport id in the header pad bytes. */
     hdr->pad[0] = cportid & 0xff;
-    hdr->pad[1] = (cportid >> 8) & 0xff;
 
     epno = priv->cport_to_epin_n[cportid];
     ep = priv->ep[epno & USB_EPNO_MASK];
@@ -851,15 +850,13 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
         if (ep_n != 0) {
             cportid = priv->epout_to_cport_n[ep_n];
             hdr->pad[0] = cportid & 0xff;
-            hdr->pad[1] = (cportid >> 8) & 0xff;
         }
 
         /*
          * Retreive and clear the cport id stored in the header pad bytes.
          */
-        cportid = hdr->pad[1] << 8 | hdr->pad[0];
+        cportid = hdr->pad[0];
         hdr->pad[0] = 0;
-        hdr->pad[1] = 0;
 
         drv->usb_to_unipro(priv, cportid, req->buf , req->xfrd);
         break;
