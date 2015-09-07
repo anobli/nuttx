@@ -957,6 +957,7 @@ static void dwc_otg_pcd_init_ep(dwc_otg_pcd_t * pcd, dwc_otg_pcd_ep_t * pcd_ep,
 	pcd_ep->dwc_ep.desc_addr = 0;
 	pcd_ep->dwc_ep.dma_desc_addr = 0;
 	DWC_CIRCLEQ_INIT(&pcd_ep->queue);
+	DWC_CIRCLEQ_INIT(&pcd_ep->ring);
 }
 
 /**
@@ -991,6 +992,7 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 			dwc_otg_pcd_init_ep(pcd, ep, 1 /* IN */ , i);
 
 			DWC_CIRCLEQ_INIT(&ep->queue);
+			DWC_CIRCLEQ_INIT(&ep->ring);
 		}
 		hwcfg1 >>= 2;
 	}
@@ -1008,6 +1010,7 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 			 */
 			dwc_otg_pcd_init_ep(pcd, ep, 0 /* OUT */ , i);
 			DWC_CIRCLEQ_INIT(&ep->queue);
+			DWC_CIRCLEQ_INIT(&ep->ring);
 		}
 		hwcfg1 >>= 2;
 	}
