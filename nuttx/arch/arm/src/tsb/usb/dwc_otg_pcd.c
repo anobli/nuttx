@@ -2333,6 +2333,49 @@ int dwc_otg_pcd_xiso_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 
 #endif
 /* END ifdef DWC_UTE_PER_IO ***************************************************/
+
+dwc_otg_pcd_request_t *dwc_otg_pcd_get_queue_req(dwc_otg_pcd_ep_t *ep,
+                                                 dwc_dma_t dma)
+{
+	dwc_otg_pcd_request_t *req;
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {
+		if (req->dma == dma)
+			return req;
+	}
+	return NULL;
+}
+
+static void init_ring_dma_desc_chain(dwc_otg_core_if_t * core_if,
+			   dwc_otg_pcd_ep_t *ep);
+
+/* This method assume we are pushing in queue always the same requests
+ * (bulk out require preallocated request then we are re queueing them)
+ */
+static void dwc_otg_pcd_queue_req(dwc_otg_core_if_t * core_if,
+			   dwc_otg_pcd_ep_t *ep,
+			   dwc_otg_pcd_request_t *new_req)
+{
+	int i = 0;
+	dwc_otg_pcd_request_t *req;
+
+	DWC_CIRCLEQ_FOREACH(req, &ep->ring, ring_entry) {
+		if (req->dma == new_req->dma) {
+			return;
+		}
+		i++;
+	}
+	DWC_CIRCLEQ_INIT_ENTRY(req, ring_entry);
+	DWC_CIRCLEQ_INSERT_TAIL(&ep->ring, new_req, ring_entry);
+}
+
+static void dwc_otg_pcd_dequeue_req(dwc_otg_core_if_t * core_if,
+			     dwc_otg_pcd_ep_t *ep, dwc_otg_pcd_request_t *req)
+{
+	if (DWC_CIRCLEQ_ENTRY_IN_QUEUE(req, ring_entry))
+		DWC_CIRCLEQ_REMOVE(&ep->ring, req, ring_entry);
+}
+
+
 int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 			 uint8_t * buf, dwc_dma_t dma_buf, uint32_t buflen,
 			 int zero, void *req_handle, int atomic_alloc)
