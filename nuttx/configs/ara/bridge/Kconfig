@@ -76,6 +76,25 @@ config ARA_BRIDGE_HAVE_POWER_SUPPLY
 	---help---
 		Power Supply Driver
 
+config BOARD_HAVE_AUDIO
+	bool "Audio support for board"
+	depends on GPBRIDGE
+	default n
+	---help---
+		A Greybus Audio Module has at least one Audio Bundle.
+		Each Audio Bundle represents an audio codec and has
+		exactly one Audio Management CPort and one or more
+		Audio Data CPorts.  Each Audio Data CPort corresponds
+		to a usable I2S connection on the associated codec.
+		An I2S connection is also known as a Digital Audio
+		Interface (DAI).
+
+		Audio Bundle information is specified in the module's
+		manifest but there is no easy way for drivers on the
+		module to access that information.  This driver provides
+		that information in a relatively easy manner and is
+		required for Greybus audio to work.
+
 choice
 	prompt "Select a bridge firmware configuration"
 	depends on BOARD_HAVE_DISPLAY
