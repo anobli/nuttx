@@ -41,6 +41,17 @@ config APBRIDGEA
 		that is not the AP module.  Do not select this for
 		GPBridge either.
 
+config APBRIDGEA_INTERCEPT
+	bool "APBridgeA Message Intercept support"
+	depends on APBRIDGEA
+	default n
+	---help---
+		Normally, messages sent between the AP and a module flow
+		through APBridgeA without any interference from APBridgeA.
+		However, sometimes it is necessary for APBridgeA to intercept
+		those messages (e.g., audio data messages).  Selecting this
+		feature allows messages to be intercepted on a per-CPort basis.
+
 choice
 	prompt "Select the backend"
 config APBRIDGEA_UNIPRO

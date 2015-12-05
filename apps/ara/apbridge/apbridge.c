@@ -53,6 +53,88 @@ static struct apbridge_dev_s *g_usbdev = NULL;
 static pthread_t g_apbridge_thread;
 static struct apbridge_backend apbridge_backend;
 
+struct apbridgea_intercept_info {
+    bool                        enabled;
+    apbridgea_intercept_handler from_usb;
+    apbridgea_intercept_handler from_unipro;
+};
+
+static struct apbridgea_intercept_info *apbridgea_intercept_tbl;
+
+#ifdef CONFIG_APBRIDGEA_INTERCEPT
+static bool apbridgea_intercept_is_enabled(unsigned int cportid)
+{
+    if (cportid >= unipro_cport_count()) {
+        return false;
+    }
+
+    return apbridgea_intercept_tbl[cportid].enabled;
+}
+
+int apbridgea_intercept_enable(unsigned int cportid,
+                               apbridgea_intercept_handler from_usb,
+                               apbridgea_intercept_handler from_unipro)
+{
+    irqstate_t flags;
+
+    if (cportid >= unipro_cport_count() || !from_usb || !from_unipro) {
+        return -EINVAL;
+    }
+
+    flags = irqsave();
+
+    if (apbridgea_intercept_is_enabled(cportid)) {
+        irqrestore(flags);
+        return -EBUSY;
+    }
+
+    apbridgea_intercept_tbl[cportid].from_usb = from_usb;
+    apbridgea_intercept_tbl[cportid].from_unipro = from_unipro;
+    apbridgea_intercept_tbl[cportid].enabled = true;
+
+    irqrestore(flags);
+
+    return 0;
+}
+
+int apbridgea_intercept_disable(unsigned int cportid)
+{
+    irqstate_t flags;
+
+    if (cportid >= unipro_cport_count()) {
+        return -EINVAL;
+    }
+
+    flags = irqsave();
+
+    apbridgea_intercept_tbl[cportid].enabled = false;
+    apbridgea_intercept_tbl[cportid].from_usb = NULL;
+    apbridgea_intercept_tbl[cportid].from_unipro = NULL;
+
+    irqrestore(flags);
+
+    return 0;
+}
+
+static int apbridgea_intercept_init(void)
+{
+    unsigned int i, count;
+
+    count = unipro_cport_count();
+
+    apbridgea_intercept_tbl = malloc(count * sizeof(*apbridgea_intercept_tbl));
+    if (!apbridgea_intercept_tbl) {
+        return -ENOMEM;
+    }
+
+    for (i = 0; i < count; i++) {
+        apbridgea_intercept_disable(i);
+    }
+
+    return 0;
+}
+#endif
+
 static int release_buffer(int status, const void *buf, void *priv)
 {
     return usb_release_buffer(priv, buf);
@@ -65,6 +147,10 @@ static int usb_to_unipro(struct apbridge_dev_s *dev, unsigned cportid,
 
     if (len < sizeof(struct gb_operation_hdr))
         return -EPROTO;
+
+    if (apbridgea_intercept_is_enabled(cportid)) {
+        return apbridgea_intercept_tbl[cportid].from_usb(cportid, buf, len);
+    }
 
     return apbridge_backend.usb_to_unipro(cportid, buf, len,
                                           release_buffer, dev);
@@ -81,6 +167,10 @@ int recv_from_unipro(unsigned int cportid, void *buf, size_t len)
 
     if (len < sizeof(struct gb_operation_hdr))
         return -EPROTO;
+
+    if (apbridgea_intercept_is_enabled(cportid)) {
+        return apbridgea_intercept_tbl[cportid].from_unipro(cportid, buf, len);
+    }
 
     return unipro_to_usb(g_usbdev, cportid, buf, len);
 }
@@ -165,6 +255,11 @@ int bridge_main(int argc, char *argv[])
     ret = usb_init();
     if (ret) {
         printf("Can not init usb: error %d\n", ret);
+    }
+
+    ret = apbridgea_intercept_init();
+    if (ret) {
+        printf("Cannot init APBridgeA intercept support: %d\n", -ret);
     }
 
 #ifdef CONFIG_EXAMPLES_NSH

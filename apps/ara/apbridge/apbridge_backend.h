@@ -33,6 +33,9 @@
 
 enum ep_mapping;
 
+typedef int (*apbridgea_intercept_handler)(unsigned int cportid, void *buf,
+                                           size_t len);
+
 struct apbridge_backend {
     int (*usb_to_unipro)(unsigned int cportid, void *buf, size_t len,
                          unipro_send_completion_t callback, void *priv);
@@ -43,6 +46,35 @@ struct apbridge_backend {
 
 int recv_from_unipro(unsigned int cportid, void *buf, size_t len);
 void apbridge_backend_register(struct apbridge_backend *apbridge_backend);
+
+#ifdef CONFIG_APBRIDGEA_INTERCEPT
+int apbridgea_intercept_enable(unsigned int cportid,
+                              apbridgea_intercept_handler from_usb,
+                              apbridgea_intercept_handler from_unipro);
+int apbridgea_intercept_disable(unsigned int cportid);
+#else
+static inline bool apbridgea_intercept_is_enabled(unsigned int cportid)
+{
+    return false;
+}
+
+static inline int apbridgea_intercept_enable(unsigned int cportid,
+                                       apbridgea_intercept_handler from_usb,
+                                       apbridgea_intercept_handler from_unipro)
+{
+    return -ENOSYS;
+}
+
+static inline int apbridgea_intercept_disable(unsigned int cportid)
+{
+    return -ENOSYS;
+}
+
+static inline int apbridgea_intercept_init(void)
+{
+    return 0;
+}
+#endif
 
 #endif /* APBRIDGE_BACKEND_H */
 
