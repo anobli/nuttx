@@ -107,6 +107,15 @@ config BOARD_CODEC_RT5647
 		Select to enable Greybus audio support using the
 		Realtek ALC5647 audio codec.
 
+config BOARD_CODEC_NXP9890
+	bool "Skeleton NXP 9890A Audio Codec Support "
+	depends on BOARD_HAVE_AUDIO
+	select BOARD_AUDIO_CODEC
+	default n
+	---help---
+		Select to enable Greybus audio support using the
+		NXP TFA9890A audio codec.
+
 choice
 	prompt "Select a bridge firmware configuration"
 	depends on BOARD_HAVE_DISPLAY

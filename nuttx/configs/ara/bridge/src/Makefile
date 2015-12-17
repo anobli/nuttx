@@ -103,6 +103,10 @@ ifeq ($(CONFIG_BOARD_CODEC_RT5647),y)
 CSRCS += rt5647.c
 endif
 
+ifeq ($(CONFIG_BOARD_CODEC_NXP9890),y)
+CSRCS += nxp9890.c
+endif
+
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 
 SRCS		= $(ASRCS) $(CSRCS)
