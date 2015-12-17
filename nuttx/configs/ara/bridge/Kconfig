@@ -98,6 +98,15 @@ config BOARD_HAVE_AUDIO
 config BOARD_COMMON_CODEC
 	bool
 
+config BOARD_CODEC_RT5647
+	bool "Realteck ALC5647 Audio Codec Support"
+	depends on BOARD_HAVE_AUDIO
+	select BOARD_COMMON_CODEC
+	default n
+	---help---
+		Select to enable Greybus audio support using the
+		Realtek ALC5647 audio codec.
+
 choice
 	prompt "Select a bridge firmware configuration"
 	depends on BOARD_HAVE_DISPLAY

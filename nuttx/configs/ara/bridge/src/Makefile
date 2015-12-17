@@ -99,6 +99,10 @@ ifeq ($(CONFIG_BOARD_COMMON_CODEC),y)
 CSRCS += common_codec.c
 endif
 
+ifeq ($(CONFIG_BOARD_CODEC_RT5647),y)
+CSRCS += rt5647.c
+endif
+
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 
 SRCS		= $(ASRCS) $(CSRCS)
