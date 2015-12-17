@@ -107,6 +107,11 @@ ifeq ($(CONFIG_BOARD_CODEC_NXP9890),y)
 CSRCS += nxp9890.c
 endif
 
+ifeq ($(CONFIG_APBRIDGEA_AUDIO),y)
+CSRCS += apbridgea_audio.c
+endif
+
+
 COBJS		= $(CSRCS:.c=$(OBJEXT))
 
 SRCS		= $(ASRCS) $(CSRCS)

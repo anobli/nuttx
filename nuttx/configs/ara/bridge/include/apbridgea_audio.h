@@ -26,46 +26,22 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _APBRIDGEA_GADGET_H_
-#define _APBRIDGEA_GADGET_H_
+#ifndef _APBRIDGEA_AUDIO_H_
+#define _APBRIDGEA_AUDIO_H_
 
-#include <sys/types.h>
-#include <arch/board/common_gadget.h>
-
-/* Vender specific control requests *******************************************/
-
-#define APBRIDGE_RWREQUEST_LOG                  (0x02)
-#define APBRIDGE_RWREQUEST_EP_MAPPING           (0x03)
-#define APBRIDGE_ROREQUEST_CPORT_COUNT          (0x04)
-#define APBRIDGE_WOREQUEST_CPORT_RESET          (0x05)
-#define APBRIDGE_ROREQUEST_LATENCY_TAG_EN       (0x06)
-#define APBRIDGE_ROREQUEST_LATENCY_TAG_DIS      (0x07)
-#define APBRIDGE_RWREQUEST_CSI_TX_CONTROL       (0x08)
-#define APBRIDGE_RWREQUEST_AUDIO_APBRIDGEA      (0x09)
-
-struct apbridge_dev_s;
-
-enum ep_mapping {
-    MULTIPLEXED_EP,
-    DIRECT_EP,
-};
-
-struct apbridge_usb_driver
+#ifdef CONFIG_APBRIDGEA_AUDIO
+extern int apbridgea_audio_out_demux(void *buf, uint16_t len);
+extern int apbridgea_audio_init(void);
+#else
+static inline int apbridgea_audio_out_demux(void *buf, uint16_t len)
 {
-    int (*usb_to_unipro)(struct apbridge_dev_s *dev, unsigned int cportid,
-                         void *payload, size_t size);
-    int (*init)(struct apbridge_dev_s *dev);
+    return 0;
+}
 
-    void (*unipro_cport_mapping)(unsigned int cportid, enum ep_mapping mapping);
-};
+static inline int apbridgea_audio_init(void)
+{
+    return 0;
+}
+#endif
 
-int unipro_to_usb(struct apbridge_dev_s *dev, unsigned cportid,
-                  const void *payload, size_t size);
-
-void usb_wait(struct apbridge_dev_s *dev);
-int usbdev_apbinitialize(struct device *dev,
-                         struct apbridge_usb_driver *driver);
-
-int usb_release_buffer(struct apbridge_dev_s *priv, const void *buf);
-
-#endif /* _APBRIDGEA_GADGET_H_ */
+#endif /* _APBRIDGEA_AUDIO_H_ */

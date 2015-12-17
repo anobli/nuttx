@@ -42,6 +42,7 @@
 #include <apps/nsh.h>
 
 #include <arch/board/apbridgea_gadget.h>
+#include <arch/board/apbridgea_audio.h>
 
 #ifdef CONFIG_BOARD_HAVE_DISPLAY
 #include <arch/board/dsi.h>
@@ -261,6 +262,8 @@ int bridge_main(int argc, char *argv[])
     if (ret) {
         printf("Cannot init APBridgeA intercept support: %d\n", -ret);
     }
+
+    apbridgea_audio_init();
 
 #ifdef CONFIG_EXAMPLES_NSH
     printf("Calling NSH\n");
