@@ -124,7 +124,10 @@
 #define BULKEP_TO_N(ep) \
   BULKEPNO_TO_N(USB_EPNO(ep->eplog))
 
-#define APBRIDGE_NREQS               (1)
+/* Number of requests for dedicated endpoints */
+#define APBRIDGE_NREQS_DEDICATED     (2)
+/* Muxed bulk endpoint pair number */
+#define APBRIDGE_MUXED_BULK_EP       (0)
 #define APBRIDGE_REQ_SIZE            (2048)
 
 #define APBRIDGE_CONFIG_ATTR \
@@ -942,10 +945,17 @@ static int usbclass_setconfig(struct apbridge_dev_s *priv, uint8_t config)
 
     /* Queue read requests in the bulk OUT endpoint */
     for (i = 0; i < APBRIDGE_NBULKS; i++) {
+        int count;
         struct usbdev_ep_s *ep;
 
+        if (i == APBRIDGE_MUXED_BULK_EP) {
+            count = unipro_cport_count();
+        } else {
+            count = APBRIDGE_NREQS_DEDICATED;
+        }
+
         ep = priv->ep[CONFIG_APBRIDGE_EPBULKOUT + i * 2];
-        ret = ep_set_requests_count(priv, ep, APBRIDGE_NREQS);
+        ret = ep_set_requests_count(priv, ep, count);
         if (ret) {
             goto errout;
         }
@@ -1162,6 +1172,7 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
 {
     struct apbridge_dev_s *priv = driver_to_apbridge(driver);
     int ret;
+    int n;
     int i;
 
     usbtrace(TRACE_CLASSBIND, 0);
@@ -1191,12 +1202,12 @@ static int usbclass_bind(struct usbdevclass_driver_s *driver,
      * CONFIGURATION processing probably occurrs within interrupt handling
      * logic where kmm_malloc calls will fail.
      */
-
+    n = unipro_cport_count() + APBRIDGE_NREQS_DEDICATED * (APBRIDGE_NBULKS - 1);
     request_pool_prealloc(priv->ep[0], APBRIDGE_MXDESCLEN, 1);
     request_pool_prealloc(priv->ep[CONFIG_APBRIDGE_EPBULKOUT],
-                          APBRIDGE_REQ_SIZE, APBRIDGE_NREQS * APBRIDGE_NBULKS);
+                          APBRIDGE_REQ_SIZE, n);
     request_pool_prealloc(priv->ep[CONFIG_APBRIDGE_EPBULKIN],
-                          APBRIDGE_REQ_SIZE, APBRIDGE_NREQS * APBRIDGE_NBULKS);
+                          APBRIDGE_REQ_SIZE, n);
 
     /* TODO test result of prealloc */
 
