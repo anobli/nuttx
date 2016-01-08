@@ -108,6 +108,9 @@
 #define APBRIDGE_NCONFIGS            (1)        /* Number of configurations supported */
 #define APBRIDGE_NBULKS              (7)
 
+#define OFFLOADED_EP                 (NULL)
+#define OFFLOADED_EPNO               (APBRIDGE_NBULKS)
+
 #define APBRIDGE_INTERFACEID         (0)
 #define APBRIDGE_ALTINTERFACEID      (0)
 #define APBRIDGE_NINTERFACES         (1)        /* Number of interfaces in the configuration */
@@ -179,6 +182,9 @@ struct apbridge_msg_s {
     void *priv;
 };
 
+typedef int (*unipro_offloaded_cb)(unsigned int cportid,
+                                   const void *payload, size_t len);
+
 /* This structure describes the internal state of the driver */
 
 struct apbridge_dev_s {
@@ -194,6 +200,8 @@ struct apbridge_dev_s {
 
     int *cport_to_epin_n;
     int epout_to_cport_n[APBRIDGE_NBULKS];
+    unipro_offloaded_cb *cport_to_unipro_offloaded;
+    unipro_offloaded_cb *cport_to_usb_offloaded;
     struct gb_timestamp *ts;
 
     struct gadget_descriptor *g_desc;
@@ -256,6 +264,8 @@ static int usbclass_setup(struct usbdevclass_driver_s *driver,
                           uint8_t * dataout, size_t outlen);
 static void usbclass_disconnect(struct usbdevclass_driver_s *driver,
                                 struct usbdev_s *dev);
+void map_cport_to_ep(struct apbridge_dev_s *priv,
+                     struct cport_to_ep *cport_to_ep);
 
 /****************************************************************************
  * Private Variables
@@ -396,6 +406,12 @@ static inline unsigned int ep_to_cportid(struct usbdev_ep_s *ep)
 static inline void epno_set_cportid(struct apbridge_dev_s *priv,
                                     uint8_t epno, unsigned int cportid)
 {
+    /*
+     * AP => APBridge
+     * nothing to do here if we want to offload cport
+     */
+    if (epno == OFFLOADED_EPNO)
+        return;
     priv->epout_to_cport_n[BULKEPNO_TO_N(epno)] = cportid;
 }
 
@@ -404,7 +420,14 @@ static inline struct usbdev_ep_s *cportid_to_ep(struct apbridge_dev_s *priv,
 {
     uint8_t epno;
 
+    /*
+     * APBridge to AP
+     * for offloaded cport, set ep to NULL (OFFLOADED_EP)
+     * Every operation related to this cport will not be handled by USB
+     */
     epno = priv->cport_to_epin_n[cportid] & USB_EPNO_MASK;
+    if (epno == OFFLOADED_EPNO)
+        return OFFLOADED_EP;
     return priv->ep[epno];
 }
 
@@ -412,6 +435,64 @@ static inline void cportid_set_epno(struct apbridge_dev_s *priv,
                                     uint8_t epno, unsigned int cportid)
 {
     priv->cport_to_epin_n[cportid] = epno;
+}
+
+/* Call the offloaded method registered for a particular cportid (APBridge to AP) */
+static inline int unipro_offloaded(struct apbridge_dev_s *priv,
+                                   unsigned int cportid,
+                                   const void *payload, size_t len)
+{
+    unipro_offloaded_cb cb;
+
+    cb = priv->cport_to_unipro_offloaded[cportid];
+    return cb(cportid, payload, len);
+}
+
+/* Call the offloaded method registered for a particular cportid (AP to APBridge) */
+static inline int usb_offloaded(struct apbridge_dev_s *priv,
+                                unsigned int cportid,
+                                const void *payload, size_t len)
+{
+    unipro_offloaded_cb cb;
+
+    cb = priv->cport_to_usb_offloaded[cportid];
+    return cb(cportid, payload, len);
+}
+
+/* Create an offloaded cport: from here, the two callback will be used instead of USB methods */
+void map_offloaded_cport(struct apbridge_dev_s *priv, unsigned int cportid,
+                         unipro_offloaded_cb unipro_cb,
+                         unipro_offloaded_cb usb_cb)
+{
+    struct cport_to_ep cport_to_ep = {
+        cpu_to_le16(cportid),
+        OFFLOADED_EPNO,
+        OFFLOADED_EPNO
+    };
+
+    /*
+     * Assume the cport has been unmapped first (ie muxed ep).
+     *
+     * The cport will not be usable anymore by AP (unipro_cb
+     * usb_cb will be called instead of regular usb methods).
+     * To return cport to AP, call unmap_offload_cport.
+     */
+    priv->cport_to_unipro_offloaded[cportid] = unipro_cb;
+    priv->cport_to_usb_offloaded[cportid] = usb_cb;
+    map_cport_to_ep(priv, &cport_to_ep);
+}
+
+/* Destroy offloaded cport */
+void unmap_offloaded_cport(struct apbridge_dev_s *priv, unsigned int cportid)
+{
+    struct cport_to_ep cport_to_ep = {
+        cpu_to_le16(cportid),
+        CONFIG_APBRIDGE_EPBULKIN,
+        CONFIG_APBRIDGE_EPBULKOUT
+    };
+
+    /* Map cport to muxed endpoints: now, can be use by AP */
+    map_cport_to_ep(priv, &cport_to_ep);
 }
 
 static int map_table_init(struct apbridge_dev_s *priv)
@@ -424,15 +505,35 @@ static int map_table_init(struct apbridge_dev_s *priv)
         return -ENOMEM;
     }
 
+    priv->cport_to_unipro_offloaded =
+        kmm_malloc(sizeof(unipro_offloaded_cb) * cport_count);
+    if (!priv->cport_to_unipro_offloaded) {
+        goto errout_with_unipro_cb_alloc;
+    }
+
+    priv->cport_to_usb_offloaded =
+        kmm_malloc(sizeof(unipro_offloaded_cb) * cport_count);
+    if (!priv->cport_to_usb_offloaded) {
+        goto errout_with_usb_cb_alloc;
+    }
+
     for (i = 0; i < cport_count; i++) {
         priv->cport_to_epin_n[i] = CONFIG_APBRIDGE_EPBULKIN;
     }
 
     return 0;
+
+errout_with_usb_cb_alloc:
+    kmm_free(priv->cport_to_unipro_offloaded);
+errout_with_unipro_cb_alloc:
+    kmm_free(priv->cport_to_epin_n);
+    return -ENOMEM;
 }
 
 static void map_table_free(struct apbridge_dev_s *priv)
 {
+    kmm_free(priv->cport_to_usb_offloaded);
+    kmm_free(priv->cport_to_unipro_offloaded);
     kmm_free(priv->cport_to_epin_n);
 }
 
@@ -569,6 +670,11 @@ int unipro_to_usb(struct apbridge_dev_s *priv, unsigned int cportid,
         return -EINVAL;
 
     ep = cportid_to_ep(priv, cportid);
+    if (ep == OFFLOADED_EP) {
+        /* offloaded cport: redirect data to the offloaded callback */
+        return unipro_offloaded(priv, cportid, payload, len);
+    }
+
     req = get_request(ep, usbclass_wrcomplete, APBRIDGE_REQ_SIZE,
                       (void*) cportid);
     if (!req) {
@@ -608,6 +714,7 @@ void map_cport_to_ep(struct apbridge_dev_s *priv,
     cportid_set_epno(priv, cport_to_ep->endpoint_in, cportid);
     epno_set_cportid(priv, cport_to_ep->endpoint_out, cportid);
 
+    /* TODO Should we call this method for offloaded cport ? */
     if (priv->driver->unipro_cport_mapping) {
         priv->driver->unipro_cport_mapping(cportid,
                                            is_multiplexed ? MULTIPLEXED_EP
@@ -823,6 +930,16 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
     case OK:                    /* Normal completion */
         usbtrace(TRACE_CLASSRDCOMPLETE, 0);
         cportid = get_cport_id(priv, ep, req);
+        if (cportid_to_ep(priv, cportid) == OFFLOADED_EP) {
+            /* I don't know if this can happen:
+             * AP send data on USB for a offloaded cport
+             * just call the offloaded method
+             */
+            usb_offloaded(priv, cportid, req->buf, req->xfrd);
+            /* TODO Should the handler release the buffer */
+            usb_release_buffer(priv, req->buf);
+            return;
+        }
         usbdclass_log_rx_time(priv, cportid);
         drv->usb_to_unipro(priv, cportid, req->buf , req->xfrd);
         break;
