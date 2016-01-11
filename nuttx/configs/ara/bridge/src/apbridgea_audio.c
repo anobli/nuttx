@@ -40,6 +40,7 @@
 
 #include <arch/board/audio_apbridgea.h>
 #include <arch/board/apbridgea_audio.h>
+ #include <arch/board/apbridgea_gadget.h>
 
 #include "../../../../drivers/greybus/audio-gb.h"
 #include "../../../../../apps/ara/apbridge/apbridge_backend.h"
@@ -313,7 +314,8 @@ static int apbridgea_audio_set_config(struct apbridgea_audio_info *info,
 static int apbridgea_audio_from_usb(unsigned int cportid, void *buf,
                                        size_t len)
 {
-    /* FIXME: Anything to do/free here? */
+    /* Could be done by the caller too */
+    usb_release_buffer(NULL, buf);
     return 0;
 }
 
@@ -353,8 +355,8 @@ static int apbridgea_audio_register_cport(struct apbridgea_audio_info *info,
     flags = irqsave();
 
     /* Make all incoming UniPro messages go to apbridgea_audio_rx_handler */
-    ret = apbridgea_intercept_enable(data_cportid, apbridgea_audio_from_usb,
-                                     apbridgea_audio_from_unipro);
+    ret = map_offloaded_cport(get_apbridge_dev(), data_cportid,
+                              apbridgea_audio_from_unipro, apbridgea_audio_from_usb);
     if (ret) {
         goto err_free_cport;
     }
@@ -388,7 +390,7 @@ static int apbridgea_audio_unregister_cport(struct apbridgea_audio_info *info,
 
     flags = irqsave();
 
-    ret = apbridgea_intercept_disable(data_cportid);
+    ret = unmap_offloaded_cport(get_apbridge_dev(), data_cportid);
     if (ret) {
         goto err_irqrestore;
     }
