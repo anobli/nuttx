@@ -167,7 +167,7 @@ static void unipro_cport_mapping(unsigned int cportid, enum ep_mapping mapping)
 {
     switch (mapping) {
     case MULTIPLEXED_EP:
-        unipro_set_max_inflight_rxbuf_count(cportid, 1);
+        unipro_set_max_inflight_rxbuf_count(cportid, 0);
         break;
 
     case DIRECT_EP:
