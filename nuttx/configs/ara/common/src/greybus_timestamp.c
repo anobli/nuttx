@@ -33,6 +33,7 @@
 #include <nuttx/greybus/loopback.h>
 #include <nuttx/unipro/unipro.h>
 #include <nuttx/greybus/greybus_timestamp.h>
+#include <arch/byteorder.h>
 
 #define USEC_PER_DAY 86400000000ULL
 #define TAG_SIZE (sizeof(struct gb_operation_hdr) + \
@@ -53,7 +54,7 @@ static __le32 calc_latency(struct timeval *ts, struct timeval *te)
 
     t1 = timeval_to_usec(ts);
     t2 = timeval_to_usec(te);
-    return __calc_latency(t1, t2);
+    return cpu_to_le32(__calc_latency(t1, t2));
 }
 
 static inline int tag_active(struct gb_timestamp *ts, unsigned int cportid)
