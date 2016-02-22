@@ -403,7 +403,7 @@ int greybus_rx_handler(unsigned int cport, void *data, size_t size)
     struct gb_operation_handler *op_handler;
     size_t hdr_size;
 
-    gb_loopback_log_entry(cport);
+    gb_loopback_log_entry(cport, data, size);
     if (cport >= cport_count || !data) {
         gb_error("Invalid cport number: %u\n", cport);
         return -EINVAL;

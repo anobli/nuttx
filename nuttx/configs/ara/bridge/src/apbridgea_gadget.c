@@ -729,7 +729,6 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
                           unsigned int cportid, const void *payload,
                           size_t len)
 {
-    struct gb_operation_hdr *gbhdr;
     struct apbridge_dev_s *priv;
     int ret;
 
@@ -740,14 +739,8 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
     req->buf = (void*) payload;
     set_cport_id(ep, req, cportid);
 
-    gbhdr = (struct gb_operation_hdr *)req->buf;
-    gb_timestamp_tag_exit_time(&priv->ts[cportid], cportid);
-
-    /* Skip the timestamping if it's not a response from GPB to AP. */
-    if (gbhdr->type & GB_TYPE_RESPONSE_FLAG) {
-        gb_timestamp_log(&priv->ts[cportid], cportid,
-                         req->buf, len, GREYBUS_FW_TIMESTAMP_APBRIDGE);
-    }
+    gb_timestamp_tag_exit_time(&priv->ts[cportid], cportid,
+                               req->buf, len, GREYBUS_FW_TIMESTAMP_APBRIDGE);
 
     /* Then submit the request to the endpoint */
 
@@ -1006,9 +999,12 @@ static void usbclass_ep0incomplete(struct usbdev_ep_s *ep,
     put_request(req);
 }
 
-static void usbdclass_log_rx_time(struct apbridge_dev_s *priv, unsigned int cportid)
+static void usbdclass_log_rx_time(struct apbridge_dev_s *priv,
+                                  struct usbdev_req_s *req,
+                                  unsigned int cportid)
 {
-    gb_timestamp_tag_entry_time(&priv->ts[cportid], cportid);
+    gb_timestamp_tag_entry_time(&priv->ts[cportid], cportid, req->buf, req->len,
+                                GREYBUS_FW_TIMESTAMP_APBRIDGE);
 }
 
 /****************************************************************************
@@ -1052,7 +1048,7 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
             usb_offloaded(priv, cportid, req->buf, req->xfrd);
             return;
         }
-        usbdclass_log_rx_time(priv, cportid);
+        usbdclass_log_rx_time(priv, req, cportid);
         drv->usb_to_unipro(priv, cportid, req->buf , req->xfrd);
         break;
 

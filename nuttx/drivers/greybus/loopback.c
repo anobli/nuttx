@@ -391,6 +391,13 @@ static uint8_t gb_loopback_transfer_req_cb(struct gb_operation *operation)
         return GB_OP_NO_MEMORY;
     response->len = request->len;
     memcpy(response->data, request->data, request_length);
+
+#ifdef CONFIG_GREYBUS_FEATURE_HAVE_TIMESTAMPS
+    /* Entry times are stored in reserved field: copy them in response */
+    response->reserved0 = request->reserved0;
+    response->reserved1 = request->reserved1;
+#endif
+
     return GB_OP_SUCCESS;
 }
 
@@ -413,7 +420,7 @@ struct gb_driver loopback_driver = {
 };
 
 #ifdef CONFIG_GREYBUS_FEATURE_HAVE_TIMESTAMPS
-void gb_loopback_log_entry(unsigned int cport)
+void gb_loopback_log_entry(unsigned int cport, void *payload, size_t len)
 {
     struct gb_loopback *loopback;
 
@@ -421,7 +428,8 @@ void gb_loopback_log_entry(unsigned int cport)
     if (!loopback)
         return;
 
-    gb_timestamp_tag_entry_time(&loopback->ts, cport);
+    gb_timestamp_tag_entry_time(&loopback->ts, cport, payload, len,
+                                GREYBUS_FW_TIMESTAMP_GPBRDIGE);
 }
 
 void gb_loopback_log_exit(unsigned int cport, struct gb_operation *operation, size_t size)
@@ -432,9 +440,8 @@ void gb_loopback_log_exit(unsigned int cport, struct gb_operation *operation, si
     if (!loopback)
         return;
 
-    gb_timestamp_tag_exit_time(&loopback->ts, cport);
-    gb_timestamp_log(&loopback->ts, cport, operation->response_buffer, size,
-                     GREYBUS_FW_TIMESTAMP_GPBRDIGE);
+    gb_timestamp_tag_exit_time(&loopback->ts, cport, operation->response_buffer,
+                     size, GREYBUS_FW_TIMESTAMP_GPBRDIGE);
 }
 #endif
 

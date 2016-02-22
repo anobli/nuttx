@@ -48,11 +48,11 @@ static useconds_t __calc_latency(useconds_t t1, useconds_t t2)
         return USEC_PER_DAY - t2 + t1;
 }
 
-static __le32 calc_latency(struct timeval *ts, struct timeval *te)
+static __le32 calc_latency(__le32 ts, struct timeval *te)
 {
     useconds_t t1, t2;
 
-    t1 = timeval_to_usec(ts);
+    t1 = le32_to_cpu(ts);
     t2 = timeval_to_usec(te);
     return cpu_to_le32(__calc_latency(t1, t2));
 }
@@ -62,38 +62,58 @@ static inline int tag_active(struct gb_timestamp *ts, unsigned int cportid)
     return (cportid < cport_max_idx && ts->tag);
 }
 
-void gb_timestamp_tag_entry_time(struct gb_timestamp *ts,
-                                 unsigned int cportid)
+void gb_timestamp_tag_entry_time(struct gb_timestamp *ts, unsigned int cportid,
+                                 void *payload, size_t len, int id)
 {
-    if (tag_active(ts, cportid))
-        gettimeofday(&ts->entry_time, NULL);
-}
+    struct timeval entry_time;
+    struct gb_loopback_transfer_request *req;
+    struct gb_operation_hdr *hdr = payload;
 
-void gb_timestamp_tag_exit_time(struct gb_timestamp *ts,
-                                unsigned int cportid)
-{
-    if (tag_active(ts, cportid))
-        gettimeofday(&ts->exit_time, NULL);
-}
-
-void gb_timestamp_log(struct gb_timestamp *ts, unsigned int cportid,
-                      void *payload, size_t len, int id)
-{
-    struct gb_loopback_transfer_response *resp = payload +
-                                                 sizeof(struct gb_operation_hdr);
-    __le32 latency;
+    if (!tag_active(ts, cportid))
+        return;
 
     if (len < TAG_SIZE)
         return;
 
-    if (tag_active(ts, cportid)) {
-        latency = calc_latency(&ts->entry_time,
-                               &ts->exit_time);
-        if (id == GREYBUS_FW_TIMESTAMP_APBRIDGE)
-            resp->reserved0 = latency;
-        else
-            resp->reserved1 = latency;
-    }
+    /* Only timestamp transfer operation */
+    if (hdr->type != GB_LOOPBACK_TYPE_TRANSFER)
+        return;
+
+    gettimeofday(&entry_time, NULL);
+
+    /* Store the timestamp in operation payload */
+    req = payload + sizeof(struct gb_operation_hdr);
+    if (id == GREYBUS_FW_TIMESTAMP_APBRIDGE)
+        req->reserved0 = cpu_to_le32(timeval_to_usec(&entry_time));
+    else
+        req->reserved1 = cpu_to_le32(timeval_to_usec(&entry_time));
+}
+
+void gb_timestamp_tag_exit_time(struct gb_timestamp *ts, unsigned int cportid,
+                                void *payload, size_t len, int id)
+{
+    struct timeval exit_time;
+    struct gb_loopback_transfer_response *resp;
+    struct gb_operation_hdr *hdr = payload;
+
+    if (!tag_active(ts, cportid))
+        return;
+
+    if (len < TAG_SIZE)
+        return;
+
+    /* Only calculate latency for a transfer operation response */
+    if (hdr->type != (GB_TYPE_RESPONSE_FLAG | GB_LOOPBACK_TYPE_TRANSFER))
+        return;
+
+    gettimeofday(&exit_time, NULL);
+
+    /* Get the entry timestamp and calculate the latency */
+    resp = payload + sizeof(struct gb_operation_hdr);
+    if (id == GREYBUS_FW_TIMESTAMP_APBRIDGE)
+        resp->reserved0 = calc_latency(resp->reserved0, &exit_time);
+    else
+        resp->reserved1 = calc_latency(resp->reserved1, &exit_time);
 }
 
 void gb_timestamp_init(void)
