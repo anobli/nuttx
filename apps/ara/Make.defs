@@ -158,3 +158,7 @@ endif
 ifeq ($(CONFIG_ARA_VERSION),y)
 CONFIGURED_APPS += ara/version
 endif
+
+ifeq ($(CONFIG_ARA_USB),y)
+CONFIGURED_APPS += ara/usb-dev
+endif
