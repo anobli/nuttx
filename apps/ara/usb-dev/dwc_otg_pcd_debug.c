@@ -1,0 +1,333 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <nuttx/util.h>
+
+# define getreg32(a)          (*(volatile uint32_t *)(a))
+
+#define HSIC_BASE               0x40040000
+#define EP_OFFSET               0x0020
+#define DCFG                    0x0800
+#define DCTL                    0x0804
+#define DSTS                    0x0808
+#define DIEPMSK                 0x0810
+#define DOEPMSK                 0x0814
+#define DAINT                   0x0818
+#define DAINTMSK                0x081C
+#define DVBUSDIS                0x0828
+#define DVBUSPULSE              0x082C
+#define DTHRCTL                 0x0830
+#define DIEPEMPMSK              0x0834
+#define DIEPCTL                 0x0900
+#define DIEPINT                 0x0908
+#define DIEPSIZ                 0x0910
+#define DIEPDMA                 0x0914
+#define DIEPXFSTS               0x0918
+#define DIEPDMAB                0x091C
+#define DOEPCTL                 0x0b00
+#define DOEPINT                 0x0b08
+#define DOEPSIZ                 0x0b10
+#define DOEPDMA                 0x0b14
+#define DOEPDMAB                0x0b1C
+
+#define DUMP_EP_REGISTER(n, epnum)                  \
+    do {                                            \
+        dwc_otg_read_reg(n + 0x20 * epnum);         \
+        lowsyslog(#n": %08x\n", reg);               \
+    } while(0)
+
+#define DUMP_REGISTER(n)                            \
+    do {                                            \
+        dwc_otg_read_reg(n);                        \
+        lowsyslog(#n": %08x\n", reg);               \
+    } while(0)
+
+#ifdef CONFIG_USB_DUMP_VERBOSE
+#define DUMP_BIT(n, b)                              \
+    if (reg & BIT(b))                               \
+        lowsyslog("  "#n"\n")
+
+#define DUMP_VALUE(n, o, s)                         \
+    lowsyslog("  "#n": %d\n", (reg >> o) & ((1 << s) - 1))
+
+#define DUMP_HEX(n, o, s)                           \
+    lowsyslog("  "#n": %x\n", (reg >> o) & ((1 << s) - 1))
+
+#define DUMP_HEX32(n)                               \
+    lowsyslog("  "#n": %x\n", reg)
+#else 
+#define DUMP_BIT(n, b)
+#define DUMP_VALUE(n, o, s)
+#define DUMP_HEX(n, o, s)
+#define DUMP_HEX32(n)
+#endif
+
+static uint32_t reg;
+static void dwc_otg_read_reg(uint32_t offset) {
+    uint32_t addr = HSIC_BASE + offset;
+    reg = getreg32(addr);
+}
+
+
+void usb_dump_diepctl(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPCTL, epnum);
+    DUMP_BIT(EPEna, 31);
+    DUMP_BIT(EPDis, 30);
+    DUMP_VALUE(TxFNum, 22, 4);
+    DUMP_BIT(Stall, 21);
+    DUMP_VALUE(EPType, 18, 2);
+    DUMP_BIT(NAKSTS, 17);
+    DUMP_BIT(USBACTEP, 15);
+    DUMP_VALUE(MPS, 0, 2);
+}
+
+
+void usb_dump_diepint(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPINT, epnum);
+    DUMP_BIT(NYETIntrpt, 14);
+    DUMP_BIT(NAKIntrpt, 13);
+    DUMP_BIT(BbleErr, 12);
+    DUMP_BIT(PktDrpSts, 11);
+    DUMP_BIT(BNAIntr, 9);
+    DUMP_BIT(TxfifoUndrn, 8);
+    DUMP_BIT(TxFEmp, 7);
+    DUMP_BIT(INEPNakEff, 6);
+    DUMP_BIT(INTknEPMis, 5);
+    DUMP_BIT(INTknTXFEmp, 4);
+    DUMP_BIT(TimeOUT, 3);
+    DUMP_BIT(AHBErr, 2);
+    DUMP_BIT(EPDisbld, 1);
+    DUMP_BIT(XferCompl, 0);
+}
+
+void usb_dump_diepsiz(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPSIZ, epnum);
+    DUMP_VALUE(PktCnt, 19, 2);
+    DUMP_VALUE(XferSize, 0, 7);
+}
+
+void usb_dump_diepdma(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPDMA, epnum);
+    DUMP_HEX32(DMAAddr);
+}
+
+void usb_dump_dtxfsts(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPXFSTS, epnum);
+    DUMP_VALUE(INEPTxFSpcAvail, 0, 16);
+}
+
+void usb_dump_diepdmab(int epnum)
+{
+    DUMP_EP_REGISTER(DIEPDMAB, epnum);
+    DUMP_HEX32(DMABufferAddr);
+}
+
+void usb_dump_doepctl(int epnum)
+{
+    DUMP_EP_REGISTER(DOEPCTL, epnum);
+    DUMP_BIT(EPEna, 31);
+    DUMP_BIT(EPDis, 30);
+    DUMP_BIT(Stall, 21);
+    DUMP_BIT(Snp, 20);
+    DUMP_VALUE(EPType, 18, 2);
+    DUMP_BIT(NAKSTS, 17);
+    DUMP_BIT(USBACTEP, 15);
+    DUMP_VALUE(MPS, 0, 2);
+}
+
+
+void usb_dump_doepint(int epnum)
+{
+    DUMP_EP_REGISTER(DOEPINT, epnum);
+    DUMP_BIT(StupPktRcvd, 15);
+    DUMP_BIT(NYETIntrpt, 14);
+    DUMP_BIT(NAKIntrpt, 13);
+    DUMP_BIT(BbleErr, 12);
+    DUMP_BIT(PktDrpSts, 11);
+    DUMP_BIT(BNAIntr, 9);
+    DUMP_BIT(OutPktErr, 8);
+    DUMP_BIT(Back2BackSETup, 6);
+    DUMP_BIT(StsPhseRcvd, 5);
+    DUMP_BIT(OUTTknEPdis, 4);
+    DUMP_BIT(SetUp, 3);
+    DUMP_BIT(AHBErr, 2);
+    DUMP_BIT(EPDisbld, 1);
+    DUMP_BIT(XferCompl, 0);
+}
+
+void usb_dump_doepsiz(int epnum)
+{
+    DUMP_EP_REGISTER(DOEPSIZ, epnum);
+    DUMP_VALUE(SUPCnt, 29, 2);
+    DUMP_BIT(PktCnt, 19);
+    DUMP_VALUE(XferSize, 0, 7);
+}
+
+void usb_dump_doepdma(int epnum)
+{
+    DUMP_EP_REGISTER(DOEPDMA, epnum);
+    DUMP_HEX32(DMAAddr);
+}
+
+void usb_dump_doepdmab(int epnum)
+{
+    DUMP_EP_REGISTER(DOEPDMAB, epnum);
+    DUMP_HEX32(DMABufferAddr);
+}
+
+void usb_dump_ep(int epnum)
+{
+    lowsyslog("EP%d\n", epnum);
+
+    /* TODO: detect the endpoint direction instead of hardcoding it */
+    if (!epnum || epnum % 2) {
+        usb_dump_diepctl(epnum);
+        usb_dump_diepint(epnum);
+        usb_dump_diepsiz(epnum);
+        usb_dump_diepdma(epnum);
+        usb_dump_dtxfsts(epnum);
+        usb_dump_diepdmab(epnum);
+    }
+    if (!epnum || epnum % 2 == 0) {
+        usb_dump_doepctl(epnum);
+        usb_dump_doepint(epnum);
+        usb_dump_doepsiz(epnum);
+        usb_dump_doepdma(epnum);
+        usb_dump_doepdmab(epnum);
+    }
+}
+
+void usb_dump_dcfg(void)
+{
+    DUMP_REGISTER(DCFG);
+    DUMP_VALUE(ResValid, 26, 6);
+    DUMP_VALUE(PerSchIntvl, 24, 2);
+    DUMP_BIT(DescDMA, 23);
+    DUMP_BIT(ErraticIntMsk, 15);
+    DUMP_BIT(XCVRDLY, 14);
+    DUMP_BIT(EnDevOutNak, 13);
+    DUMP_VALUE(PerFrInt, 11, 2);
+    DUMP_VALUE(DevAddr, 4, 7);
+    DUMP_BIT(Ena32KHzSusp, 3);
+    DUMP_BIT(NZStsOUTHShk, 2);
+    DUMP_VALUE(DevSpd, 0, 2);
+}
+
+void dump_usb_dctl(void)
+{
+    DUMP_REGISTER(DCTL);
+    DUMP_BIT(DeepSleepBESLReject, 18);
+    DUMP_BIT(EnContOnBNA, 17);
+    DUMP_BIT(NakOnBble, 16);
+    DUMP_BIT(IgnrFrmNum, 15);
+    DUMP_VALUE(GMC, 13, 2);
+    DUMP_BIT(PWROnPrgDone, 11);
+    DUMP_BIT(CGOUTNak, 10);
+    DUMP_BIT(SGOUTNak, 9);
+    DUMP_BIT(CGNPInNak, 8);
+    DUMP_BIT(SGNPInNak, 7);
+    DUMP_VALUE(TstCtl, 4, 3);
+    DUMP_BIT(GOUTNakSts, 3);
+    DUMP_BIT(GNPINNakSts, 2);
+    DUMP_BIT(SftDiscon, 1);
+    DUMP_BIT(RmtWkUpSig, 0);
+}
+
+void dump_usb_dsts(void)
+{
+    DUMP_REGISTER(DSTS);
+    DUMP_VALUE(DevLnSts, 22, 2);
+    DUMP_VALUE(SOFFN, 8, 22);
+    DUMP_BIT(ErrticErr, 3);
+    DUMP_VALUE(EnumSpd, 1, 2);
+    DUMP_BIT(SuspSts, 0);
+}
+
+void dump_usb_diepmsk(void)
+{
+    DUMP_REGISTER(DIEPMSK);
+    DUMP_BIT(NAKMsk, 13);
+    DUMP_BIT(BNAInIntrMsk, 9);
+    DUMP_BIT(TxfifoUndrnMsk, 8);
+    DUMP_BIT(INEPNakEffMsk, 6);
+    DUMP_BIT(INTknEPMisMsk, 5);
+    DUMP_BIT(INTknTXFEmpMsk, 4);
+    DUMP_BIT(TimeOUTMsk, 3);
+    DUMP_BIT(AHBErrMsk, 2);
+    DUMP_BIT(EPDisbldMsk, 1);
+    DUMP_BIT(XferComplMsk, 0);
+}
+
+void dump_usb_doepmsk(void)
+{
+    DUMP_REGISTER(DOEPMSK);
+    DUMP_BIT(NYETKMsk, 14);
+    DUMP_BIT(NAKMsk, 13);
+    DUMP_BIT(BbleErrMsk, 12);
+    DUMP_BIT(BnaOutIntrMsk, 9);
+    DUMP_BIT(OutPktErrMsk, 8);
+    DUMP_BIT(Back2BackSETup, 6);
+    DUMP_BIT(StsPhseRcvdMsk, 5);
+    DUMP_BIT(OUTTknEPdisMsk, 4);
+    DUMP_BIT(SetUPMsk, 3);
+    DUMP_BIT(AHBErrMsk, 2);
+    DUMP_BIT(EPDisbldMsk, 1);
+    DUMP_BIT(XferComplMsk, 0);
+}
+
+void dump_usb_daint(void)
+{
+    DUMP_REGISTER(DAINT);
+    DUMP_BIT(OutEPInt4, 20);
+    DUMP_BIT(OutEPInt2, 28);
+    DUMP_BIT(OutEPInt0, 16);
+    DUMP_BIT(InEPInt3, 3);
+    DUMP_BIT(InEPInt2, 1);
+    DUMP_BIT(InEPInt0, 0);
+}
+
+void dump_usb_daintmsk(void)
+{
+    DUMP_REGISTER(DAINTMSK);
+    DUMP_BIT(OutEPIntMsk4, 20);
+    DUMP_BIT(OutEPIntMsk2, 28);
+    DUMP_BIT(OutEPIntMsk0, 16);
+    DUMP_BIT(InEPIntMsk3, 3);
+    DUMP_BIT(InEPIntMsk2, 1);
+    DUMP_BIT(InEPIntMsk0, 0);
+}
+
+void dump_usb_dthrctl(void)
+{
+    DUMP_REGISTER(DTHRCTL);
+    DUMP_BIT(ArbPrkEn, 27);
+    DUMP_VALUE(RxThrLen, 17, 9);
+    DUMP_BIT(RxThrEn, 1);
+    DUMP_VALUE(AHBThrRatio, 11, 2);
+    DUMP_VALUE(TxThrLen, 2, 9);
+    DUMP_BIT(ISOThrEn, 1);
+    DUMP_BIT(NonISOThrEn, 0);
+}
+
+void dump_usb_diepmpmsk(void)
+{
+    DUMP_REGISTER(DIEPEMPMSK);
+    DUMP_HEX(InEpTxfEmpMsk, 0, 16);
+}
+
+void usb_dump_global_device(void)
+{
+    usb_dump_dcfg();
+    dump_usb_dctl();
+    dump_usb_dsts();
+    dump_usb_diepmsk();
+    dump_usb_doepmsk();
+    dump_usb_daint();
+    dump_usb_daintmsk();
+    dump_usb_dthrctl();
+    dump_usb_diepmpmsk();
+}
