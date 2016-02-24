@@ -39,6 +39,15 @@ config ARA_USB
 
 if ARA_USB
 
+config USB_DUMP
+	bool "Enable option to dump USB register"
+	default n
+
+config USB_DUMP_VERBOSE
+	bool "Make dump more verbose"
+	depends on USB_DUMP
+	default n
+
 config ARA_USB_PROGNAME
 	string "Program name"
 	default "usb"
