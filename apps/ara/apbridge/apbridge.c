@@ -69,11 +69,6 @@ static int usb_to_unipro(struct apbridge_dev_s *dev, unsigned cportid,
 
 int recv_from_unipro(unsigned int cportid, void *buf, size_t len)
 {
-    /*
-     * FIXME: Remove when UniPro driver provides the actual buffer length.
-     */
-    len = gb_packet_size(buf);
-
     gb_dump(buf, len);
 
     if (len < sizeof(struct gb_operation_hdr))
