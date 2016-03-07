@@ -100,6 +100,16 @@ config APBRIDGEA_AUDIO
 		Data Messages received from an Audio Module on the specified
 		CPort will be de-packetized and sent out APBridgeA's I2S port.
 
+config DATA_MOVEMENT_WD
+	bool "Enable the data movement watchdog"
+	default n
+	---help---
+		Detect any data movement blockage and take corrective action.
+		Be careful, the corrective action often mean drop the data.
+		Also be aware that feature may require a lot of watchdog but
+		doesn't allocate them dynamically, so you may have to increse
+		the number of preallocated watchdog.
+
 choice
 	prompt "Board"
 	---help---

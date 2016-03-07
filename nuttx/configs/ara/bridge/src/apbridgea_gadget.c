@@ -62,6 +62,7 @@
 #include <nuttx/usb/usbdev_trace.h>
 #include <nuttx/logbuffer.h>
 #include <nuttx/gpio.h>
+#include <nuttx/wdog.h>
 #include <nuttx/greybus/greybus.h>
 #include <nuttx/unipro/unipro.h>
 #include <arch/byteorder.h>
@@ -160,6 +161,9 @@
 
 #define APBRIDGE_MXDESCLEN           (64)
 
+/* WD Timeout: 10 ms */
+#define USB_TIMEOUT_DELAY (CLOCKS_PER_SEC / 5)
+
 /* Misc Macros ****************************************************************/
 
 /* min/max macros */
@@ -233,6 +237,23 @@ struct csi_tx_control {
     __le32 bus_freq;
     __le32 lines_per_second;
 };
+
+enum ctrlreq_state {
+    USB_REQ,
+    GREYBUS_LOG,
+    GREYBUS_EP_MAPPING,
+};
+
+struct data_movement_wd {
+    struct list_head list;
+    WDOG_ID id;
+    void *priv;
+    const void *buf;
+    void (*callback)(struct data_movement_wd *wd);
+};
+#ifdef CONFIG_DATA_MOVEMENT_WD
+static LIST_DECLARE(g_data_movement_wd);
+#endif
 
 /****************************************************************************
  * Private Function Prototypes
@@ -725,6 +746,111 @@ unsigned int get_cport_id(struct apbridge_dev_s *priv,
     return cportid;
 }
 
+#ifdef CONFIG_DATA_MOVEMENT_WD
+static void bulkin_timeout(struct data_movement_wd *wd)
+{
+    struct usbdev_ep_s *ep;
+    struct usbdev_req_s *req;
+
+    ep = wd->priv;
+    req = wd->buf;
+
+    lowsyslog("Drop Bulk in data\n");
+    if (EP_CANCEL(ep, req)) {
+        lowsyslog("Failed to cancel the request\n");
+    }
+}
+
+static void bulkout_timeout(struct data_movement_wd *wd)
+{
+    lowsyslog("Drop Bulk out data\n");
+    /* FIXME: Cancel the UniPro transfer */
+    usb_release_buffer(wd->priv, wd->buf);
+}
+
+static void data_movement_timeout(int argc, uint32_t arg1, ...)
+{
+    const void *buf =  (const void *)arg1;
+    struct data_movement_wd *wd;
+    struct list_head *iter, *next;
+
+    list_foreach_safe(&g_data_movement_wd, iter, next) {
+        wd = list_entry(iter, struct data_movement_wd, list);
+        if (wd->buf == buf) {
+            wd->callback(wd);
+            break;
+        }
+    }
+}
+
+static int data_movement_wd_start(const void *buf, void *priv,
+                                  void (*cb)(struct data_movement_wd *wd))
+{
+    int ret;
+    struct data_movement_wd *wd;
+
+    wd = malloc(sizeof(*wd));
+    if (!wd)
+        return -ENOMEM;
+
+    wd->id = wd_create();
+    if (!wd->id) {
+        free(wd);
+        return -ENOMEM;
+    }
+
+    wd->buf = buf;
+    wd->priv = priv;
+    wd->callback = cb;
+
+    list_init(&wd->list);
+    list_add(&g_data_movement_wd, &wd->list);
+
+    ret = wd_start(wd->id, USB_TIMEOUT_DELAY,
+                   data_movement_timeout, 1, (uint32_t) buf);
+    if (ret) {
+        list_del(&wd->list);
+        wd_delete(wd->id);
+        free(wd);
+    }
+
+    return ret;
+}
+
+static void data_movement_wd_cancel(const void *buf)
+{
+    struct data_movement_wd *wd;
+    struct list_head *iter, *next;
+
+    list_foreach_safe(&g_data_movement_wd, iter, next) {
+        wd = list_entry(iter, struct data_movement_wd, list);
+        if (wd->buf == buf) {
+            list_del(&wd->list);
+            wd_cancel(wd->id);
+            wd_delete(wd->id);
+            free(wd);
+            break;
+        }
+    }
+}
+#else
+static void bulkin_timeout(struct data_movement_wd *wd)
+{
+}
+
+static void bulkout_timeout(struct data_movement_wd *wd)
+{
+}
+
+static int data_movement_wd_start(const void *buf, void *priv,
+                                  void (*cb)(struct data_movement_wd *wd))
+{
+    return 0;
+}
+
+static void data_movement_wd_cancel(const void *buf) {}
+#endif /* CONFIG_DATA_MOVEMENT_WD */
+
 static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
                           unsigned int cportid, const void *payload,
                           size_t len)
@@ -738,6 +864,8 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
 
     req->buf = (void*) payload;
     set_cport_id(ep, req, cportid);
+    if (data_movement_wd_start(req, ep, bulkin_timeout))
+        lowsyslog("Failed to start the watchdog\n");
 
     gb_timestamp_tag_exit_time(&priv->ts[cportid], cportid,
                                req->buf, len, GREYBUS_FW_TIMESTAMP_APBRIDGE);
@@ -792,6 +920,8 @@ int usb_release_buffer(struct apbridge_dev_s *priv, const void *buf)
     struct usbdev_req_s *req;
     int ret = 0;
 
+    /* Cancel the wd timer */
+    data_movement_wd_cancel(buf);
 
     req = find_request_by_priv(buf);
     if (!req) {
@@ -1049,6 +1179,11 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
             return;
         }
         usbdclass_log_rx_time(priv, req, cportid);
+
+        /* Start the wd timer */
+        if (data_movement_wd_start(req->buf, priv, bulkout_timeout))
+            lowsyslog("Failed to start the watchdog\n");
+
         drv->usb_to_unipro(priv, cportid, req->buf , req->xfrd);
         break;
 
@@ -1077,7 +1212,11 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
     }
 #endif
 
+    data_movement_wd_cancel(req);
     unipro_rxbuf_free((unsigned int) request_get_priv(req), req->buf);
+    if (req->result) {
+        return;
+    }
 
     priv = ep_to_apbridge(ep);
     info = apbridge_dequeue(priv);
