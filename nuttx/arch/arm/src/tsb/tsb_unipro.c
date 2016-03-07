@@ -363,6 +363,7 @@ static int irq_rx_eom(int irq, void *context) {
     uint32_t transferred_size;
     (void)context;
     void *newbuf;
+    int ret = 0;
 
     clear_rx_interrupt(cport);
 
@@ -389,8 +390,13 @@ static int irq_rx_eom(int irq, void *context) {
             DBG_UNIPRO("cport %u: switch buf when available\n", cport->cportid);
         }
 
-        cport->driver->rx_handler(cport->cportid, data,
-                                  (size_t)transferred_size);
+        ret = cport->driver->rx_handler(cport->cportid, data,
+                                        (size_t)transferred_size);
+        if (ret) {
+            /* Transfer failed, we have to release the buffer */
+            lldbg("UniPro transfer failed: %d\n", ret);
+            unipro_rxbuf_free(cport->cportid, data);
+        }
     }
 
     return 0;
