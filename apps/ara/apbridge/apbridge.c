@@ -80,6 +80,11 @@ int recv_from_unipro(unsigned int cportid, void *buf, size_t len)
     gb_dump(buf, len);
 
     if (len < sizeof(struct gb_operation_hdr)) {
+        len = gb_packet_size(buf);
+        lowsyslog("%s: Workaround the 0 bytes message issue\n", __func__);
+    }
+
+    if (len < sizeof(struct gb_operation_hdr)) {
        lowsyslog("%s: Packet smaller than Greybus header\n", __func__);
         return -EPROTO;
     }
