@@ -37,8 +37,6 @@
 #include <nuttx/wdog.h>
 #include <nuttx/wqueue.h>
 
-#include "apbridge_backend.h"
-
 /*
  * TODO
  * Already defined in tsb_unipro.c
@@ -58,6 +56,38 @@ struct cport_reset_priv {
     atomic_t refcount;
 };
 static struct work_s mbox_work;
+static pthread_t g_apbridge_thread;
+
+static int release_buffer(int status, const void *buf, void *priv)
+{
+    return usb_release_buffer(priv, buf);
+}
+
+int recv_from_unipro(unsigned int cportid, void *buf, size_t len)
+{
+    /*
+     * FIXME: Remove when UniPro driver provides the actual buffer length.
+     */
+    len = gb_packet_size(buf);
+
+    gb_dump(buf, len);
+
+    if (len < sizeof(struct gb_operation_hdr))
+        return -EPROTO;
+
+    return unipro_to_usb(get_apbridge_dev(), cportid, buf, len);
+}
+
+int usb_to_unipro(struct apbridge_dev_s *dev, unsigned cportid,
+                         void *buf, size_t len)
+{
+    gb_dump(buf, len);
+
+    if (len < sizeof(struct gb_operation_hdr))
+        return -EPROTO;
+
+    return unipro_send_async(cportid, buf, len, release_buffer, dev);
+}
 
 static void cport_reset_cb(unsigned int cportid, void *data)
 {
@@ -139,12 +169,6 @@ static int cport_disable_fct_tx_flow_vendor_request_out(struct usbdev_s *dev,
     return unipro_disable_fct_tx_flow(value);
 }
 
-static int unipro_usb_to_unipro(unsigned int cportid, void *buf, size_t len,
-                                unipro_send_completion_t callback, void *priv)
-{
-    return unipro_send_async(cportid, buf, len, callback, priv);
-}
-
 static struct unipro_driver unipro_driver = {
     .name = "APBridge",
     .rx_handler = recv_from_unipro,
@@ -173,7 +197,21 @@ static void apbridge_unipro_evt_handler(enum unipro_event evt)
     }
 }
 
-static void unipro_backend_init(void)
+void unipro_cport_mapping(unsigned int cportid, enum ep_mapping mapping)
+{
+    switch (mapping) {
+    case MULTIPLEXED_EP:
+        unipro_set_max_inflight_rxbuf_count(cportid, 1);
+        break;
+
+    case DIRECT_EP:
+        unipro_set_max_inflight_rxbuf_count(cportid,
+                                    CONFIG_TSB_UNIPRO_MAX_INFLIGHT_BUFCOUNT);
+        break;
+    }
+}
+
+static void _apbridgea_unipro_init(void)
 {
     int i;
     unsigned int cport_count = unipro_cport_count();
@@ -190,23 +228,18 @@ static void unipro_backend_init(void)
     }
 }
 
-static void unipro_cport_mapping(unsigned int cportid, enum ep_mapping mapping)
+static void *usb_wait_and_init(void *p_data)
 {
-    switch (mapping) {
-    case MULTIPLEXED_EP:
-        unipro_set_max_inflight_rxbuf_count(cportid, 1);
-        break;
+    usb_wait(get_apbridge_dev());
+    _apbridgea_unipro_init();
 
-    case DIRECT_EP:
-        unipro_set_max_inflight_rxbuf_count(cportid,
-                                    CONFIG_TSB_UNIPRO_MAX_INFLIGHT_BUFCOUNT);
-        break;
-    }
+    return NULL;
 }
 
-/* FIXME Update backend to return error code */
-void apbridge_backend_register(struct apbridge_backend *apbridge_backend)
+int apbridgea_unipro_init(void)
 {
+    int ret;
+
     if (register_vendor_request(APBRIDGE_ROREQUEST_CPORT_COUNT,
                                 VENDOR_REQ_IN,
                                 cport_count_vendor_request_in)) {
@@ -232,7 +265,7 @@ void apbridge_backend_register(struct apbridge_backend *apbridge_backend)
                " vendor request\n");
     }
 
-    apbridge_backend->usb_to_unipro = unipro_usb_to_unipro;
-    apbridge_backend->init = unipro_backend_init;
-    apbridge_backend->unipro_cport_mapping = unipro_cport_mapping;
+    ret = pthread_create(&g_apbridge_thread, NULL,
+                         usb_wait_and_init, NULL);
+    return ret;
 }
