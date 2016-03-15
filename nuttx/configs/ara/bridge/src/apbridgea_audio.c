@@ -388,7 +388,8 @@ static int apbridgea_audio_set_config(struct apbridgea_audio_info *info,
     return 0;
 }
 
-static int apbridgea_audio_from_usb(unsigned int cportid, void *buf, size_t len)
+static int apbridgea_audio_from_usb(unsigned int cportid, void *buf,
+                                    size_t len, void *priv)
 {
     dbg_error("%s: unexpected message for cport %d\n", __func__, cportid);
     usb_release_buffer(NULL, buf);
@@ -396,7 +397,7 @@ static int apbridgea_audio_from_usb(unsigned int cportid, void *buf, size_t len)
 }
 
 static int apbridgea_audio_from_unipro(unsigned int cportid, void *buf,
-                                       size_t len)
+                                       size_t len, void *priv)
 {
     struct apbridgea_audio_info *info;
     size_t hdr_size;

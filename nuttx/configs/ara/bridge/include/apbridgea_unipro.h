@@ -30,8 +30,8 @@
 #define _APBRIDGEA_UNIPRO_H_
 
 int apbridgea_unipro_init(void);
-int usb_to_unipro(struct apbridge_dev_s *dev, unsigned cportid,
-                         void *buf, size_t len);
+int unipro_tx_transfer(unsigned int cportid,
+                       void *buf, size_t len, void *priv);
 void unipro_cport_mapping(unsigned int cportid, enum ep_mapping mapping);
 
 #endif /* _APBRIDGEA_UNIPRO_H_ */
