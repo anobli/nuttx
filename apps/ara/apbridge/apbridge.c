@@ -95,6 +95,7 @@ int bridge_main(int argc, char *argv[])
         printf("Can not init usb: error %d\n", ret);
     }
 
+    apbridgea_debug_init();
     apbridgea_unipro_init();
     apbridgea_audio_init();
 
