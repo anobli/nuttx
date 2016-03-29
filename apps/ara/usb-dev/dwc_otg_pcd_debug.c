@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <nuttx/util.h>
+#include <arch/board/apbridgea_gadget.h>
 
 #include "dwc_otg_pcd_debug.h"
 
@@ -360,3 +361,23 @@ void usb_dump_global_device(void)
     dump_usb_dthrctl();
     dump_usb_diepmpmsk();
 }
+
+#ifdef CONFIG_DWC_ENHANCED_BULK_OUT
+extern void usbdev_dump_ring_descriptor(struct usbdev_ep_s *usb_ep);
+int usb_dump_ring_descriptor(int epnum)
+{
+    struct usbdev_ep_s *ep;
+    struct apbridge_dev_s *priv;
+
+    priv = get_apbridge_dev();
+    ep = get_apbridge_ep(priv, epnum);
+
+    if (!ep) {
+        return -EINVAL;
+    }
+
+    usbdev_dump_ring_descriptor(ep);
+
+    return 0;
+}
+#endif

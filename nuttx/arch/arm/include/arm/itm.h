@@ -31,6 +31,8 @@
 #ifndef __ARCH_ARM_ITM_H__
 #define __ARCH_ARM_ITM_H__
 
+#include <sys/types.h>
+
 void itm_init(void);
 void itm_enable_port(int port);
 void itm_disable_port(int port);

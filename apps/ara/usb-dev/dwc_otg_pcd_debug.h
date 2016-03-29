@@ -31,5 +31,8 @@
 
 void usb_dump_ep(int epnum);
 void usb_dump_global_device(void);
+#ifdef CONFIG_DWC_ENHANCED_BULK_OUT
+int usb_dump_ring_descriptor(int epnum);
+#endif
 
 #endif
