@@ -179,6 +179,8 @@
 /* Total number of endpoints (included setup endpoint) */
 #define APBRIDGE_MAX_ENDPOINTS (APBRIDGE_NENDPOINTS + 1)
 
+static void data_movement_wd_cancel(const void *buf);
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -745,20 +747,30 @@ unsigned int get_cport_id(struct apbridge_dev_s *priv,
     }
     return cportid;
 }
+int usb_main(int argc, char *argv[]);
 
 #ifdef CONFIG_DATA_MOVEMENT_WD
 static void bulkin_timeout(struct data_movement_wd *wd)
 {
+    char *argv_ep1[] = {"usb_main", "d", "-e", "1", "-g"};
+    char *argv_ep2[] = {"usb_main", "d", "-e", "2"};
     struct usbdev_ep_s *ep;
     struct usbdev_req_s *req;
 
     ep = wd->priv;
     req = wd->buf;
 
+#ifndef CONFIG_USB_DUMP
     lowsyslog("Drop Bulk in data\n");
     if (EP_CANCEL(ep, req)) {
         lowsyslog("Failed to cancel the request\n");
     }
+#else
+    usb_main(5, argv_ep1);
+    usb_main(4, argv_ep2);
+    lowsyslog("\n\n");
+    data_movement_wd_cancel(req->buf);
+#endif
 }
 
 static void bulkout_timeout(struct data_movement_wd *wd)
