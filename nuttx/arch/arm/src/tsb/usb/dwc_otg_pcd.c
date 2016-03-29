@@ -3014,6 +3014,7 @@ int dwc_otg_pcd_ep_dequeue(dwc_otg_pcd_t * pcd, void *ep_handle,
 	/* Invalidate the entry in the ring to cause a BNA */
 	if (!ep->dwc_ep.is_in &&
 		invalidate_ring_entry(&ep->dwc_ep, req->dma_desc) < 0) {
+		DWC_SPINUNLOCK_IRQRESTORE(pcd->lock, flags);
 		return -DWC_E_INVALID;
 	}
 	dwc_otg_pcd_dequeue_req(pcd->core_if, ep, req);
