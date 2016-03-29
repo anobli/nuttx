@@ -110,6 +110,15 @@ config DATA_MOVEMENT_WD
 		doesn't allocate them dynamically, so you may have to increse
 		the number of preallocated watchdog.
 
+if DATA_MOVEMENT_WD
+config BULKIN_WD
+	bool "Bulk in watchdog"
+	default y
+config BULKOUT_WD
+	bool "Bulk OUT watchdog"
+	default y
+endif
+
 choice
 	prompt "Board"
 	---help---

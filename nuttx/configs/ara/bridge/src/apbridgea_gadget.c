@@ -864,8 +864,10 @@ static int _to_usb_submit(struct usbdev_ep_s *ep, struct usbdev_req_s *req,
 
     req->buf = (void*) payload;
     set_cport_id(ep, req, cportid);
+#ifdef CONFIG_BULKIN_WD
     if (data_movement_wd_start(req, ep, bulkin_timeout))
         lowsyslog("Failed to start the watchdog\n");
+#endif
 
     gb_timestamp_tag_exit_time(&priv->ts[cportid], cportid,
                                req->buf, len, GREYBUS_FW_TIMESTAMP_APBRIDGE);
@@ -920,8 +922,10 @@ int usb_release_buffer(struct apbridge_dev_s *priv, const void *buf)
     struct usbdev_req_s *req;
     int ret = 0;
 
+#ifdef CONFIG_BULKOUT_WD
     /* Cancel the wd timer */
     data_movement_wd_cancel(buf);
+#endif
 
     req = find_request_by_priv(buf);
     if (!req) {
@@ -1180,9 +1184,11 @@ static void usbclass_rdcomplete(struct usbdev_ep_s *ep,
         }
         usbdclass_log_rx_time(priv, req, cportid);
 
+#ifdef CONFIG_BULKOUT_WD
         /* Start the wd timer */
         if (data_movement_wd_start(req->buf, priv, bulkout_timeout))
             lowsyslog("Failed to start the watchdog\n");
+#endif
 
         if (!drv->usb_to_unipro(priv, cportid, req->buf , req->xfrd))
             return;
@@ -1218,7 +1224,9 @@ static void usbclass_wrcomplete(struct usbdev_ep_s *ep,
     }
 #endif
 
+#ifdef CONFIG_BULKIN_WD
     data_movement_wd_cancel(req);
+#endif
     unipro_rxbuf_free((unsigned int) request_get_priv(req), req->buf);
     if (req->result) {
         return;
