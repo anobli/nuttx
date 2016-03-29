@@ -162,7 +162,7 @@
 #define APBRIDGE_MXDESCLEN           (64)
 
 /* WD Timeout: 10 ms */
-#define USB_TIMEOUT_DELAY (CLOCKS_PER_SEC / 5)
+#define USB_TIMEOUT_DELAY (CLOCKS_PER_SEC / 50)
 
 /* Misc Macros ****************************************************************/
 
