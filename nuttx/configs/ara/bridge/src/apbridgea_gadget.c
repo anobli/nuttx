@@ -756,9 +756,11 @@ static void bulkin_timeout(struct data_movement_wd *wd)
     char *argv_ep2[] = {"usb_main", "d", "-e", "2"};
     struct usbdev_ep_s *ep;
     struct usbdev_req_s *req;
+    struct apbridge_dev_s *priv;
 
     ep = wd->priv;
     req = wd->buf;
+    priv = ep_to_apbridge(ep);
 
 #ifndef CONFIG_USB_DUMP
     lowsyslog("Drop Bulk in data\n");
@@ -768,7 +770,10 @@ static void bulkin_timeout(struct data_movement_wd *wd)
 #else
     usb_main(5, argv_ep1);
     usb_main(4, argv_ep2);
-    lowsyslog("\n\n");
+    lowsyslog("\nEPIN Desc:\n");
+    usb_dump_ring_descriptor(priv->ep[1]);
+    lowsyslog("\nEPOUT Desc:\n");
+    usb_dump_ring_descriptor(priv->ep[2]);
     data_movement_wd_cancel(req->buf);
 #endif
 }
